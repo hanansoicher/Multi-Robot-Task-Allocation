@@ -12,9 +12,14 @@ This repository will contain all of our project artifacts such as:
 
 ## Architecture Drawings
 
-## Report
+## Report documents
 
-**LaTex: [Overleaf (view only)](https://www.overleaf.com/read/mjnbjpyyvfnd#f2ec36)**
+**Milestone 1: [Docs (view only)](https://docs.google.com/document/d/1rScEsScUIcoGwau_Ql9WleNG6Nl_FFPPY1N9IfjY0T4/edit?usp=sharing)**
+
+**LaTex project proposal: [Overleaf (view only)](https://www.overleaf.com/read/jnxhcmdchgwh#0e1aad)**
+
+**LaTex report: [Overleaf (view only)](https://www.overleaf.com/read/mjnbjpyyvfnd#f2ec36)**
+
 
 ## Useful Resources
 
