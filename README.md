@@ -10,6 +10,10 @@ This repository will contain all of our project artifacts such as:
 
 ## Mechanical Designs
 
+### Demonstration layout
+
+![Layout of the demo](designs/demo_layout.jpg)
+
 ## Architecture Drawings
 
 ## Report documents
