@@ -8,14 +8,6 @@ This repository will contain all of our project artifacts such as:
 - Reports
 - Posters
 
-## Mechanical Designs
-
-### Demonstration layout
-
-![Layout of the demo](designs/demo_layout.jpg)
-
-## Architecture Drawings
-
 ## Report documents
 
 **Milestone 1: [Docs (view only)](https://docs.google.com/document/d/1rScEsScUIcoGwau_Ql9WleNG6Nl_FFPPY1N9IfjY0T4/edit?usp=sharing)**
