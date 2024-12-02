@@ -21,11 +21,21 @@ class VideoToGraph:
         self.pixel_block_height_px = 0
         self.pixel_block_width_px = 0
 
-# Video input
+    # Video input
+    def initialize_camera(self, camera = int(0)):
+        capture = cv.VideoCapture(camera) # 0 is the default camera, can also take a file
 
-# create graph
+        if not capture.isOpened():
+            print("Cannot open camera")
+            input("Press Enter to exit... ")
+            exit()
 
-# update graph
+        return capture
+    
+    # Release the camera 
+    def tear_down(self):
+        self.cap.release()
+        cv.destroyAllWindows()
 
 # Detecting the objects
 
