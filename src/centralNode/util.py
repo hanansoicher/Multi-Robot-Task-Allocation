@@ -24,6 +24,21 @@ class UtilityFunctions:
             x /= w
             y /= w
         return x, y, w
+    
+    @staticmethod
+    def apply_inverse_affine_transform(pixel_pos, matrix):
+        # Invert the affine matrix
+        inv_matrix, _ = cv.invert(matrix)
+        
+        # Apply the inverse transformation
+        pixel_homogeneous = np.array([pixel_pos[0], pixel_pos[1], 1], dtype=np.float32)
+        transformed = np.dot(inv_matrix, pixel_homogeneous)
+        x, y, w = transformed[0], transformed[1], transformed[2]
+        
+        if w != 0:  # Normalize by w for perspective transformations
+            x /= w
+            y /= w
+        return x, y
 
     @staticmethod
     def compute_affine_transformation(corners, grid_width, grid_height):
@@ -50,7 +65,7 @@ class UtilityFunctions:
         color_ranges = {
             "green": ((35, 50, 50), (85, 255, 255)),  # Green range
             "red": ((0, 200, 200), (10, 255, 255)),    # Red range (low range)
-            "blue": ((100, 50, 50), (140, 255, 255)), # Blue range
+            "blue": ((115, 100, 50), (137, 200, 200)), # Blue range
             "orange": ((10, 100, 100), (25, 255, 255)), # Orange range
         }
         
@@ -87,7 +102,7 @@ class UtilityFunctions:
                     centroids.append((cx, cy))
             
             # Store centroids in the dictionary
-            points[color_name] = centroids[0] if len(centroids) == 1 else centroids 
+            points[color_name] = centroids[0] #if len(centroids) == 1 else centroids 
         
         return points   
     
