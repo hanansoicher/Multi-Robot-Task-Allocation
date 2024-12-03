@@ -159,6 +159,3 @@ class Graph(nx.Graph):
                       5, uf.YELLOW, -1)  # Yellow circle
 
         return overlay_image
-
-    
- 
