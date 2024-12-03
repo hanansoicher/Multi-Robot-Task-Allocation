@@ -74,7 +74,6 @@ class Graph(nx.Graph):
                 graph[node_a][node_b]['weight'] = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
                 graph[node_b][node_a]['weight'] = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
 
-
     def update_graph_based_on_obstacle(graph, contour, proximity_threshold):
         for node in graph.nodes:
             node_x, node_y,_ = graph.nodes[node]["real_pos"]
@@ -83,6 +82,24 @@ class Graph(nx.Graph):
                 graph.nodes[node]["is_near_obstacle"] = True
             else:
                 graph.nodes[node].setdefault("is_near_obstacle", False)
+
+    def update_graph_based_on_qr_code(graph, overlapping_nodes):
+        for node in overlapping_nodes:
+            graph.nodes[node]["is_near_obstacle"] = True
+
+        Graph.update_graph_weights_based_on_obstacles(graph)
+
+    def find_nodes_within_bounding_box(graph, min_x, max_x, min_y, max_y, proximity_threshold):
+        overlapping_nodes = []
+        for node in graph.nodes():
+            node_pos = graph.nodes[node]["real_pos"]
+            node_x, node_y = node_pos[0], node_pos[1]
+            
+            # Check if the node is within the bounding box of the QR code
+            if min_x - proximity_threshold <= node_x <= max_x + proximity_threshold and \
+            min_y - proximity_threshold <= node_y <= max_y + proximity_threshold:
+                overlapping_nodes.append(node)
+        return overlapping_nodes
 
     def safe_astar_path(graph, start_node, goal_node, heuristic):
         if not nx.has_path(graph, start_node, goal_node):
@@ -142,3 +159,6 @@ class Graph(nx.Graph):
                       5, uf.YELLOW, -1)  # Yellow circle
 
         return overlay_image
+
+    
+ 
