@@ -1,9 +1,19 @@
 import cv2 as cv
 import numpy as np
+import math
+
 
 class UtilityFunctions:
 
+    YELLOW=(255,255,153)
+    RED=(0,0,255)
+    GREEN=(0,255,0)
+    BLUE=(255,0,0)
 
+    @staticmethod
+    def euclidean_distance(point1, point2):
+        return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1]-point1[0]) ** 2)    
+    
     @staticmethod
     # Function to apply affine transformation to a point
     def apply_affine_transform(point, matrix):
@@ -36,9 +46,7 @@ class UtilityFunctions:
         return matrix
     
     @staticmethod
-    def create_bounding_box(image):
-        hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
-        # define range of color in HSV to detect the corners
+    def find_corners(image):
         color_ranges = {
             "green": ((35, 50, 50), (85, 255, 255)),  # Green range
             "red": ((0, 200, 200), (10, 255, 255)),    # Red range (low range)
@@ -61,29 +69,14 @@ class UtilityFunctions:
         }
 
         return corners
-    
-    @staticmethod
-    def calculate_scale_factor(self,point1, point2, real_world_distance):
-        # Calculate pixel distance between two points
-        pixel_distance = np.sqrt((point2[0] - point1[0])**2 + (point2[1] - point1[1])**2)
-        # Calculate the scale factor
-        scale_factor = real_world_distance / pixel_distance
-        return scale_factor
-    
+       
     @staticmethod
     def find_points(image, color_ranges):
         hsv = cv.cvtColor(image, cv.COLOR_BGR2HSV)
         points = {}
-        # Draw the corners to confirm
         for color_name, (lower, upper) in color_ranges.items():
-            # Create mask for the color
-            lower = np.array(lower, dtype="uint8")
-            upper = np.array(upper, dtype="uint8")
-            mask = cv.inRange(hsv, lower, upper)
-            
-            # Find contours for the color
-            contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-            
+            contours = UtilityFunctions.find_contours(hsv, lower, upper)
+
             # Find the centroids of the contours
             centroids = []
             for contour in contours:
@@ -98,6 +91,17 @@ class UtilityFunctions:
         
         return points   
     
+    @staticmethod
+    def find_contours(hsv, lower, upper):
+        # Create mask for the color
+        lower = np.array(lower, dtype="uint8")
+        upper = np.array(upper, dtype="uint8")
+        mask = cv.inRange(hsv, lower, upper)
+        
+        # Find contours for the color
+        contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        return contours
+
     @staticmethod
     # Display image close window when q is pressed
     def show_image(opencv_image):
