@@ -102,12 +102,14 @@ class Graph(nx.Graph):
             min_y - proximity_threshold <= node_y <= max_y + proximity_threshold:
                 overlapping_nodes.append(node)
         return overlapping_nodes
-
+    
+    @staticmethod
     def safe_astar_path(graph, start_node, goal_node, heuristic):
         if not nx.has_path(graph, start_node, goal_node):
             return None
 
-        path = nx.astar_path(graph, source=start_node, target=goal_node, weight="weight", heuristic=heuristic)
+        path = nx.astar_path(graph, source=start_node, target=goal_node, weight= lambda u, v, d: None if d['weight'] == float("inf") else d['weight'], heuristic=heuristic)
+        
         # Check if any edge in the path has infinite weight
         for u, v in zip(path[:-1], path[1:]):
             if graph.edges[u, v].get('weight', None) == float('inf'):
@@ -115,13 +117,18 @@ class Graph(nx.Graph):
                 return None
         return path
     
+
+    def a_star_from_pixel_pos(graph, pixel_pos, goal):
+        nearest_node = Graph.find_nearest_node(graph, pixel_pos)
+        path = Graph.safe_astar_path(graph, nearest_node, goal, Graph.heuristic)
+        return path
+
     # Feel free to improve
+    @staticmethod
     def find_nearest_node(graph, query_point):
         # Extract node positions
         positions = nx.get_node_attributes(graph, "real_pos")
-
         query_point = query_point + (np.float32(1.0),)
-        
         distances = {
                 node: np.linalg.norm(np.array(pos) - np.array(query_point))
                 for node, pos in positions.items()
@@ -141,6 +148,7 @@ class Graph(nx.Graph):
             print(f"Edge {node1} -> {node2}: weight = {weight}")
         print(f"Total path weight: {total_weight}")
 
+    @staticmethod
     def heuristic(node, goal):
         return uf.euclidean_distance(node, goal)       
     

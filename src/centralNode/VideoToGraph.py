@@ -66,16 +66,16 @@ class VideoToGraph:
             overlay_image = self.draw_overlay(frame, graph)
             self.draw_objects_overlay(overlay_image)
             try:
-                robot_2 = self.tracked_objects['robot 2']
-                center = uf.find_center_of_square(robot_2)
-                nearest_node = gr.find_nearest_node(self.graph, center)
-                print("neareast node:", nearest_node)
-
-                path = gr.safe_astar_path(graph, nearest_node, (self.grid_width - 1, self.grid_height - 4), gr.heuristic)
-                if path:
-                    overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
+                robot_goals = {
+                    'robot 1': (self.grid_width - 1, self.grid_height - 4),
+                    'robot 2': (self.grid_width - 3, self.grid_height - 12),          
+                    }
+                paths = self.find_paths(robot_goals)
+                for path in paths:
+                    if path:
+                        overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
             except:
-                    print("Couldn't find robot_2")
+                print("Couldn't find path")
 
 
 
@@ -128,6 +128,15 @@ class VideoToGraph:
             pts = self.tracked_objects[key].astype(int)
             cv.polylines(overlay_image, [pts], isClosed=True, color=uf.GREEN, thickness=2)
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
+    
+    def find_paths(self, robot_goal):
+        paths = []
+        for robot, goal in robot_goal.items():
+            robot_position = self.tracked_objects[robot]
+            center = uf.find_center_of_square(robot_position)
+            path = gr.a_star_from_pixel_pos(self.graph, center, goal)
+            paths.append(path)
+        return paths
 
 
     def set_dimensions(self, corners, block_size_cm=3.5):
