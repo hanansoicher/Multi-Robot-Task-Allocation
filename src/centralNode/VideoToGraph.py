@@ -19,10 +19,12 @@ class VideoToGraph:
         self.maze_length = length if metric else length * 2.54
         self.grid_height = 0
         self.grid_width = 0
+        self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
-        self.corners = {}
         self.qcd = None
+        self.tracked_objects = {}
+
 
     # Video input
     def initialize_camera(self, camera = int(0)):
@@ -59,7 +61,7 @@ class VideoToGraph:
                 refresh = False
 
             overlay_image = self.draw_overlay(frame, graph)
-            self.draw_objects_overlay(overlay_image, objects)
+            self.draw_objects_overlay(overlay_image, self.tracked_objects)
 
             # Display the (frame + overlay)
             cv.imshow('frame_with_overlay', overlay_image)
@@ -84,13 +86,12 @@ class VideoToGraph:
             gr.update_graph_weights_based_on_obstacles(graph)
         self.refresh_matrix(self.corners)
 
-        objects = self.detect_objects(image)
-        for key in objects.keys():
+        self.detect_objects(image)
+        for key in self.tracked_objects.keys():
             try:
                 if key[0] == "a":
-                    qr_code_points = objects[key].astype(int)
+                    qr_code_points = self.tracked_objects[key].astype(int)
                     overlapping_nodes = self.check_qr_code_overlap(graph, qr_code_points)
-                    print(len(overlapping_nodes))
                     gr.update_graph_based_on_qr_code(graph, overlapping_nodes)
             except :
                 print(f"Invalid QR code detected: {key}")
@@ -106,8 +107,8 @@ class VideoToGraph:
         return overlay_image
 
     def draw_objects_overlay(self, overlay_image, objects):
-        for key in objects.keys():
-            pts = objects[key].astype(int)
+        for key in self.tracked_objects.keys():
+            pts = self.tracked_objects[key].astype(int)
             cv.polylines(overlay_image, [pts], isClosed=True, color=uf.GREEN, thickness=2)
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
 
@@ -140,7 +141,6 @@ class VideoToGraph:
     def detect_objects(self, image):
         # Initialize the QR code detector
         self.qcd = cv.QRCodeDetector() if self.qcd is None else self.qcd
-
         objects = {}
         
         # Detect and decode QR codes
@@ -151,8 +151,14 @@ class VideoToGraph:
                 try:
                     objects[decoded_info] = points[i]
                 except:
+                    position = (int(points[0][0]), int(points[0][1]))
+                    nearest_id = self.get_nearest_object(position, self.tracked_objects)
+                    if nearest_id:
+                        objects[nearest_id] = points[i]
+                        print(f"QR code {decoded_info} is too close to {nearest_id}")
+                        print(f"Updating position of {nearest_id} to {position}")
                     pass
-        return objects
+        self.update_positions(objects, self.tracked_objects)
     
     def check_qr_code_overlap(self, graph, qr_code_points, proximity_threshold=22):
         transformed_qr_code_points = []
@@ -171,7 +177,25 @@ class VideoToGraph:
         # Check for nodes within the bounding box
         overlapping_nodes = gr.find_nodes_within_bounding_box(graph, min_x, max_x, min_y, max_y, proximity_threshold)    
         return overlapping_nodes
+    
+    def update_positions(self, objects, tracked_objects):
+        for obj in objects:
+            position = objects[obj]  # (x, y) coordinates
 
+            # Update the tracked objects
+            self.tracked_objects[obj] = position
+
+    def get_nearest_object(position, tracked_objects, threshold=50):
+        closest_id = None
+        min_distance = float('inf')
+
+        for obj_id, last_position in tracked_objects.items():
+            distance = (uf.euclidean_distance(position, last_position))**0.5
+            if distance < min_distance and distance < threshold:
+                min_distance = distance
+                closest_id = obj_id
+
+        return closest_id
 
 if __name__ == "__main__":
     main()
