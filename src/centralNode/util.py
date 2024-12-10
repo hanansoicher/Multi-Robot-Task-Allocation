@@ -116,6 +116,17 @@ class UtilityFunctions:
         # Find contours for the color
         contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         return contours
+    
+    @staticmethod
+    def find_center_of_square(positions):
+        # (x,y) - (topleft,topright,bottomright,bottomleft)
+        top_left = positions[0]
+        bottom_right = positions[2]
+
+        center_x = (top_left[0] + bottom_right[0]) // 2 
+        center_y = (top_left[1] + bottom_right[1]) // 2 
+        
+        return (center_x,center_y)
 
     @staticmethod
     # Display image close window when q is pressed

@@ -1,4 +1,5 @@
 import networkx as nx
+import numpy as np
 from util import UtilityFunctions as uf
 from typing import Optional
 import cv2 as cv
@@ -66,13 +67,14 @@ class Graph(nx.Graph):
         for edge in graph.edges():
             node_a, node_b = edge
             if graph.nodes[node_a].get("is_near_obstacle", False) or graph.nodes[node_b].get("is_near_obstacle", False):
-                graph[node_a][node_b]['weight'] = float('inf')
-                graph[node_b][node_a]['weight'] = float('inf')
+                graph.edges[node_a, node_b]['weight'] = float('inf')
+                graph.edges[node_b, node_a]['weight'] = float('inf')
             else:
                 node_a_x, node_a_y, _ = graph.nodes[node_a]["real_pos"]
                 node_b_x, node_b_y, _ = graph.nodes[node_b]["real_pos"]
-                graph[node_a][node_b]['weight'] = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
-                graph[node_b][node_a]['weight'] = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
+                distance = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
+                graph.edges[node_a, node_b]['weight'] = distance
+                graph.edges[node_b, node_a]['weight'] = distance
 
     def update_graph_based_on_obstacle(graph, contour, proximity_threshold):
         for node in graph.nodes:
@@ -108,10 +110,26 @@ class Graph(nx.Graph):
         path = nx.astar_path(graph, source=start_node, target=goal_node, weight="weight", heuristic=heuristic)
         # Check if any edge in the path has infinite weight
         for u, v in zip(path[:-1], path[1:]):
-            if graph[u][v].get('weight', None) == float('inf'):
+            if graph.edges[u, v].get('weight', None) == float('inf'):
                 print(f"No path exists: Infinite weight edge encountered between {u} and {v}.")
                 return None
         return path
+    
+    # Feel free to improve
+    def find_nearest_node(graph, query_point):
+        # Extract node positions
+        positions = nx.get_node_attributes(graph, "real_pos")
+
+        query_point = query_point + (np.float32(1.0),)
+        
+        distances = {
+                node: np.linalg.norm(np.array(pos) - np.array(query_point))
+                for node, pos in positions.items()
+            }
+        
+        # Find the node with the minimum distance
+        nearest_node = min(distances, key=distances.get)
+        return nearest_node
 
     def print_path_weights(graph, path):
         total_weight = 0

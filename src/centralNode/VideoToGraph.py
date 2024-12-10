@@ -68,14 +68,10 @@ class VideoToGraph:
             try:
                 robot_2 = self.tracked_objects['robot 2']
                 center = uf.find_center_of_square(robot_2)
+                nearest_node = gr.find_nearest_node(self.graph, center)
+                print("neareast node:", nearest_node)
 
-                # (41, 20): (np.float64(2131.0000000000005), np.float64(1044.0), np.float64(0.9063705759888968))
-                print(center)
-
-                nearest_point = gr.find_nearest_node(self.graph, center)
-                print("neareast pont:", nearest_point)
-
-                path = gr.safe_astar_path(graph, nearest_point, (self.grid_width - 1, self.grid_height - 4), gr.heuristic)
+                path = gr.safe_astar_path(graph, nearest_node, (self.grid_width - 1, self.grid_height - 4), gr.heuristic)
                 if path:
                     overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
             except:
