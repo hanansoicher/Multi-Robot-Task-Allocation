@@ -40,6 +40,12 @@ class UtilityFunctions:
             y /= w
         return int(x), int(y)
 
+    
+    TOP_LEFT = "top_left" 
+    TOP_RIGHT = "top_right"
+    BOTTOM_LEFT = "bottom_left"
+    BOTTOM_RIGHT = "bottom_right"
+    
     @staticmethod
     def compute_affine_transformation(corners, grid_width, grid_height):
         # Define the source (grid coordinates) and destination (image coordinates) points for affine transformation
@@ -49,24 +55,28 @@ class UtilityFunctions:
             [0, grid_height-1],  # Bottom-left of grid 
             [grid_width-1, grid_height-1],  # Bottom-right of grid 
         ])
-
         dest_points = np.float32([
-            corners["top_left"], 
-            corners["top_right"],
-            corners["bottom_left"],
-            corners["bottom_right"],
+            corners[UtilityFunctions.TOP_LEFT], 
+            corners[UtilityFunctions.TOP_RIGHT],
+            corners[UtilityFunctions.BOTTOM_LEFT],
+            corners[UtilityFunctions.BOTTOM_RIGHT],
         ])
         matrix,_ = cv.findHomography(source_points, dest_points)
 
         return matrix
     
+    GREEN_RANGE = ((35, 50, 50), (85, 255, 255))
+    RED_RANGE = ((0, 200, 200), (10, 255, 255))
+    BLUE_RANGE = ((115, 100, 50), (137, 200, 200)) 
+    ORANGE_RANGE = ((10, 100, 100), (25, 255, 255))
+
     @staticmethod
     def find_corners(image):
         color_ranges = {
-            "green": ((35, 50, 50), (85, 255, 255)),  # Green range
-            "red": ((0, 200, 200), (10, 255, 255)),    # Red range (low range)
-            "blue": ((115, 100, 50), (137, 200, 200)), # Blue range
-            "orange": ((10, 100, 100), (25, 255, 255)), # Orange range
+            "green": UtilityFunctions.GREEN_RANGE, 
+            "red": UtilityFunctions.RED_RANGE,
+            "blue": UtilityFunctions.BLUE_RANGE,
+            "orange": UtilityFunctions.ORANGE_RANGE
         }
         
         # Find the corners of the maze
@@ -77,10 +87,10 @@ class UtilityFunctions:
         bottom_right = max([p for p in corners if p != top_left and p != top_right and p != bottom_left], key=lambda p: (p[0], p[1]))  
 
         corners = {
-            "top_left": top_left,
-            "top_right": top_right,
-            "bottom_left": bottom_left,
-            "bottom_right": bottom_right,
+            UtilityFunctions.TOP_LEFT: top_left,
+            UtilityFunctions.TOP_RIGHT: top_right,
+            UtilityFunctions.BOTTOM_LEFT: bottom_left,
+            UtilityFunctions.BOTTOM_RIGHT: bottom_right,
         }
 
         return corners
@@ -100,10 +110,7 @@ class UtilityFunctions:
                     cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
                     centroids.append((cx, cy))
-            
-            # Store centroids in the dictionary
-            points[color_name] = centroids[0] #if len(centroids) == 1 else centroids 
-        
+            points[color_name] = centroids[0] 
         return points   
     
     @staticmethod
@@ -133,12 +140,3 @@ class UtilityFunctions:
         affine = UtilityFunctions.apply_affine_transform(point, matrix)
         inverse = UtilityFunctions.apply_inverse_affine_transform(point, matrix)
         print(f"point: {point}, affine: {affine}, inverse: {inverse}")
-
-    @staticmethod
-    # Display image close window when q is pressed
-    def show_image(opencv_image):
-        while True:
-            cv.imshow("Threshold", opencv_image)
-            if cv.waitKey(1) == ord('q'):
-                break
-        cv.destroyAllWindows()

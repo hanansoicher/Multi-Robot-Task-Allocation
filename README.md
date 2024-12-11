@@ -33,3 +33,12 @@ This repository will contain all of our project artifacts such as:
 **Project ideas: [lf-lang](https://www.lf-lang.org/embedded-lab/Project.html#project-ideas)**
 
 **Project proposal sample charter: [drive](https://drive.google.com/file/d/1HWjgUgCOMmKmGkQ-XO-0xD5rjHO2KG7c/view)**
+
+### Misc
+
+#### Avoid QR code warnings 
+
+```sh
+chmod +x scripts/set_opencv_log_level.sh && ./scripts/set_opencv_log_level.sh
+```
+
