@@ -52,7 +52,6 @@ class VideoToGraph:
 
         if not capture.isOpened():
             print("Cannot open camera")
-            input("Press Enter to exit... ")
             exit()
 
         return capture
@@ -65,7 +64,7 @@ class VideoToGraph:
         cv.destroyAllWindows()
 
     # Create and update graph from the video input
-    def start_environment(self, overlay_update_frame_interval=40):
+    def start_environment(self, overlay_update_frame_interval=1):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
         while self.running:
@@ -74,6 +73,7 @@ class VideoToGraph:
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
+                self.cap.release()
                 break
 
             refresh_graph = True if frame_count % overlay_update_frame_interval*3 == 0 else False
@@ -97,7 +97,6 @@ class VideoToGraph:
                     print("Couldn't find path")
 
             # Display the (frame + overlay)
-            # cv.imshow('frame_with_overlay', overlay_image)
             if not self.frame_queue.full():
                 self.frame_queue.put(overlay_image)
             frame_count += 1
@@ -106,7 +105,7 @@ class VideoToGraph:
         if refresh_graph:
             corners = uf.find_corners(image)
             if self.corners != corners:
-                print("updating corners")
+                # print("updating corners")
                 self.corners = corners
                 self.set_dimensions(corners)
                 self.graph = nx.grid_2d_graph(self.grid_width, self.grid_height)
@@ -130,6 +129,7 @@ class VideoToGraph:
     def draw_overlay(self, image, graph):
         overlay_image = gr.draw_nodes_overlay(graph, image)
         overlay_image = gr.draw_edges_overlay(graph, overlay_image)
+        overlay_image = self.draw_corners_overlay(overlay_image)
         return overlay_image
 
     def draw_objects_overlay(self, overlay_image):
@@ -137,11 +137,19 @@ class VideoToGraph:
             pts = self.tracked_objects[key].astype(int)
             cv.polylines(overlay_image, [pts], isClosed=True, color=uf.GREEN, thickness=2)
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
+
+    def draw_corners_overlay(self, overlay_image):
+        for corner_name, (x,y) in self.corners.items():
+            cv.putText(overlay_image, corner_name, (x-30, y+20), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
+        return overlay_image
     
     def find_paths(self, robot_goal):
         paths = {}
         for robot, goal in robot_goal.items():
-            robot_position = self.tracked_objects[robot]
+            try:
+                robot_position = self.tracked_objects[robot]
+            except:
+                continue
             center = uf.find_center_of_rectangle(robot_position)
             path = gr.a_star_from_pixel_pos(self.graph, center, goal)
             paths[robot] = path
@@ -152,15 +160,18 @@ class VideoToGraph:
             self.robot_goals[robot] = goal
 
     def set_dimensions(self, corners, block_size_cm=3.5):
-        # Compute grid dimensions based on the block size and image size
-        image_width_px = corners['top_right'][0] - corners['top_left'][0]
-        image_height_px = corners['bottom_left'][1] - corners['top_left'][1]
+        try:
+            # Compute grid dimensions based on the block size and image size
+            image_width_px = corners['top_right'][0] - corners['top_left'][0]
+            image_height_px = corners['bottom_left'][1] - corners['top_left'][1]
 
-        pixel_block_height_px  = (block_size_cm / self.maze_height) * image_height_px
-        pixel_block_width_px = (block_size_cm / self.maze_length) * image_width_px
+            pixel_block_height_px  = (block_size_cm / self.maze_height) * image_height_px
+            pixel_block_width_px = (block_size_cm / self.maze_length) * image_width_px
 
-        self.grid_width = int(image_width_px / pixel_block_width_px)
-        self.grid_height = int(image_height_px / pixel_block_height_px)         
+            self.grid_width = int(image_width_px / pixel_block_width_px)
+            self.grid_height = int(image_height_px / pixel_block_height_px)     
+        except:
+            print("Couldn't set the dimensions")    
     
     def detect_static_obstacles(self, image, graph, proximity_threshold=60):
         overlay_image = image.copy()
@@ -216,10 +227,10 @@ class VideoToGraph:
                 same_position = np.array_equal(position, previous_position)
                 if not same_position:
                     self.tracked_objects[robot] = position
-                    print(f"updated: {robot} position")
+                    # print(f"updated: {robot} position")
             except:
                 self.tracked_objects[robot] = position
-                print(f"set the position of {robot}")
+                # print(f"set the position of {robot}")
 
 
     def get_nearest_object(self, points, threshold=400):

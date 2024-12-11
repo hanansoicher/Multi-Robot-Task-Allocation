@@ -4,11 +4,19 @@ import cv2 as cv
 
 def main():
     video = "img/video/test_with_block.mov"
+    webcam = "img/video/test_with_webcam.mov"
+    web_cam_close = "img/video/webcam_red_close.mov"
+    web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
+    web_cam_further_top = "img/video/webcam_red_further_top.mov"
     robots = {
         'robot 1': 'R1:XX', #MAC address
         'robot 2': 'R2:XX:', 
     }
-    central_node = CentralNode(video, robots)
+    central_node = CentralNode(web_cam_further_angle, robots)
+    while len(central_node.vg.corners) < 4:
+        print("Waiting for corners to be detected")
+        time.sleep(1)
+
 
     last_time = time.time()
     try:
@@ -21,12 +29,12 @@ def main():
                 cv.imshow(f'frame_with_overlay', frame)
                 if i % FRAME_MULTIPLIER == 0:
                     frames += 1
-                    print(f"frames process: {frames*FRAME_MULTIPLIER}")
+                    print(f"frames process: {frames * FRAME_MULTIPLIER}")
 
             if time.time() - last_time > 2:  
                 last_time = time.time()
-                instructions = central_node.run_solver()
-                central_node.send_instructions(instructions)
+                # instructions = central_node.run_solver()
+                # central_node.send_instructions(instructions)
                 
             if cv.waitKey(1) == ord('q'):
                 break
@@ -71,7 +79,6 @@ class CentralNode:
         # convert solutions to instructions
         instructions = self.solutions_to_robot_instructions(solutions)
         return instructions
-    
 
     def create_task_stream(self, weighted_graph, shortest_paths, robots):
         # create a task stream from the graph / path 
@@ -79,7 +86,6 @@ class CentralNode:
 
     def solutions_to_robot_instructions(self, solutions):
         return {'r1': 0, 'r2': 1}
-
 
     def send_instructions(self, instructions):
         for robot, instruction in instructions.items():
