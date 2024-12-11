@@ -1,25 +1,27 @@
 import cv2 as cv
 import networkx as nx
 import numpy as np
-
+import threading
+import queue
 from util import UtilityFunctions as uf
 from graph import Graph as gr
 
 
-
 def main():
-
     video = "img/video/test_with_block.mov"
-
     vg = VideoToGraph(75, 150, video)
-    vg.start_environment(vg.cap)
+    vg.start_environment()
     vg.tear_down()
 
 class VideoToGraph:
 
     #initilaize
     def __init__(self, width, length, video_file, metric = True):
+
+        # video feed
         self.cap = self.initialize_camera(video_file)
+
+        # Graph setup
         self.maze_height = width if metric else width * 2.54
         self.maze_length = length if metric else length * 2.54
         self.grid_height = 0
@@ -27,9 +29,21 @@ class VideoToGraph:
         self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
+
+        # shortest paths from robot to goal
+        self.paths = {}
+        self.robot_goals = {}
+
+        # QR Code / robot tracking 
         self.qcd = None
-        self.tracked_objects = {}
         self.overlapping_nodes = set()
+        self.tracked_objects = {}
+
+        # relay processed video via thread to avoid creating a blocking call
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.running = True
+        self.thread = threading.Thread(target=self.start_environment, daemon=True)
+        self.thread.start()
 
 
     # Video input
@@ -45,16 +59,18 @@ class VideoToGraph:
     
     # Release the camera 
     def tear_down(self):
+        self.running = False
+        self.thread.join()
         self.cap.release()
         cv.destroyAllWindows()
 
     # Create and update graph from the video input
-    def start_environment(self, cap, overlay_update_frame_interval=40):
+    def start_environment(self, overlay_update_frame_interval=40):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
-        while True:
+        while self.running:
             # Capture frame-by-frame
-            ret, frame = cap.read()
+            ret, frame = self.cap.read()
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
@@ -70,27 +86,20 @@ class VideoToGraph:
             overlay_image = self.draw_overlay(frame, graph)
             self.draw_objects_overlay(overlay_image)
             try:
-                robot_goals = {
-                    'robot 1': (self.grid_width - 1, self.grid_height - 4),
-                    'robot 2': (self.grid_width - 3, self.grid_height - 12),          
-                    }
-                paths = self.find_paths(robot_goals)
-                for path in paths:
-                    if path:
+                paths = self.find_paths(self.robot_goals)
+                for robot_path in paths.keys():
+                    if robot_path:
+                        path = paths[robot_path]
                         overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
+                        self.paths[robot_path] = path
             except:
                 if update:
                     print("Couldn't find path")
 
             # Display the (frame + overlay)
-            cv.imshow('frame_with_overlay', overlay_image)
-            if cv.waitKey(1) == ord('r'):
-                print(self.tracked_objects)
-
-
-            # Exit condition
-            if cv.waitKey(1) == ord('q'):
-                break
+            # cv.imshow('frame_with_overlay', overlay_image)
+            if not self.frame_queue.full():
+                self.frame_queue.put(overlay_image)
             frame_count += 1
     
     def convert_image_to_graph(self, image, refresh_graph):
@@ -104,10 +113,13 @@ class VideoToGraph:
                 gr.add_diagonal_edges(self.grid_width, self.grid_height, self.graph)
                 self.refresh_matrix(corners)
                 gr.set_node_positions(self.graph, self.matrix)
+                self.set_robot_goals({
+                    'robot 1': (self.grid_width - 1, self.grid_height - 4),
+                    'robot 2': (self.grid_width - 3, self.grid_height - 12),          
+                    })
             self.detect_static_obstacles(image, self.graph)
             self.detect_objects(image)
             gr.adjust_graph_weights(self.graph)        
-
 
         return self.graph
     
@@ -127,14 +139,17 @@ class VideoToGraph:
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
     
     def find_paths(self, robot_goal):
-        paths = []
+        paths = {}
         for robot, goal in robot_goal.items():
             robot_position = self.tracked_objects[robot]
             center = uf.find_center_of_rectangle(robot_position)
             path = gr.a_star_from_pixel_pos(self.graph, center, goal)
-            paths.append(path)
+            paths[robot] = path
         return paths
 
+    def set_robot_goals(self, goals):
+        for robot, goal in goals.items():
+            self.robot_goals[robot] = goal
 
     def set_dimensions(self, corners, block_size_cm=3.5):
         # Compute grid dimensions based on the block size and image size
