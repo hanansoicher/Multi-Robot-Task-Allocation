@@ -5,7 +5,10 @@ import numpy as np
 from util import UtilityFunctions as uf
 from graph import Graph as gr
 
+
+
 def main():
+
     video = "img/video/test_with_block.mov"
 
     vg = VideoToGraph(75, 150, video)
@@ -26,6 +29,7 @@ class VideoToGraph:
         self.graph = nx.Graph()
         self.qcd = None
         self.tracked_objects = {}
+        self.overlapping_nodes = set()
 
 
     # Video input
@@ -47,7 +51,7 @@ class VideoToGraph:
     # Create and update graph from the video input
     def start_environment(self, cap, overlay_update_frame_interval=40):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
-        refresh = True  # Flag to refresh the graph
+        refresh_graph = True  
         while True:
             # Capture frame-by-frame
             ret, frame = cap.read()
@@ -56,12 +60,12 @@ class VideoToGraph:
                 print("Can't receive frame (stream end?). Exiting ...")
                 break
 
-            refresh = True if frame_count % overlay_update_frame_interval*3 == 0 else False
-            if frame_count % overlay_update_frame_interval == 0:
-                graph = self.convert_image_to_graph(frame, refresh)
+            refresh_graph = True if frame_count % overlay_update_frame_interval*3 == 0 else False
+            update = frame_count % overlay_update_frame_interval == 0
+            if update:
+                graph = self.convert_image_to_graph(frame, refresh_graph)
                 self.detect_objects(frame)
-                refresh = False
-     
+                refresh_graph = False
 
             overlay_image = self.draw_overlay(frame, graph)
             self.draw_objects_overlay(overlay_image)
@@ -75,20 +79,22 @@ class VideoToGraph:
                     if path:
                         overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
             except:
-                print("Couldn't find path")
-
-
+                if update:
+                    print("Couldn't find path")
 
             # Display the (frame + overlay)
             cv.imshow('frame_with_overlay', overlay_image)
+            if cv.waitKey(1) == ord('r'):
+                print(self.tracked_objects)
+
 
             # Exit condition
             if cv.waitKey(1) == ord('q'):
                 break
             frame_count += 1
     
-    def convert_image_to_graph(self, image, refresh):
-        if refresh:
+    def convert_image_to_graph(self, image, refresh_graph):
+        if refresh_graph:
             corners = uf.find_corners(image)
             if self.corners != corners:
                 print("updating corners")
@@ -98,27 +104,18 @@ class VideoToGraph:
                 gr.add_diagonal_edges(self.grid_width, self.grid_height, self.graph)
                 self.refresh_matrix(corners)
                 gr.set_node_positions(self.graph, self.matrix)
-            gr.adjust_graph_weights(self.graph)        
             self.detect_static_obstacles(image, self.graph)
-            gr.update_graph_weights_based_on_obstacles(self.graph)
-            self.refresh_matrix(self.corners)
+            self.detect_objects(image)
+            gr.adjust_graph_weights(self.graph)        
 
-        self.detect_objects(image)
-        for key in self.tracked_objects.keys():
-            try:
-                if key[0] == "a":
-                    qr_code_points = self.tracked_objects[key].astype(int)
-                    overlapping_nodes = self.check_qr_code_overlap(self.graph, qr_code_points)
-                    gr.update_graph_based_on_qr_code(self.graph, overlapping_nodes)
-            except :
-                print(f"Invalid QR code detected: {key}")
+
         return self.graph
     
     def refresh_matrix(self, corners):
         matrix = uf.compute_affine_transformation(corners, self.grid_width, self.grid_height)
         self.matrix = matrix
 
-    def draw_overlay(self, image, graph,):
+    def draw_overlay(self, image, graph):
         overlay_image = gr.draw_nodes_overlay(graph, image)
         overlay_image = gr.draw_edges_overlay(graph, overlay_image)
         return overlay_image
@@ -133,7 +130,7 @@ class VideoToGraph:
         paths = []
         for robot, goal in robot_goal.items():
             robot_position = self.tracked_objects[robot]
-            center = uf.find_center_of_square(robot_position)
+            center = uf.find_center_of_rectangle(robot_position)
             path = gr.a_star_from_pixel_pos(self.graph, center, goal)
             paths.append(path)
         return paths
@@ -167,54 +164,56 @@ class VideoToGraph:
     def detect_objects(self, image):
         # Initialize the QR code detector
         self.qcd = cv.QRCodeDetector() if self.qcd is None else self.qcd
-        objects = {}
         
         # Detect and decode QR codes
         retval, decoded_infos, points, _ = self.qcd.detectAndDecodeMulti(image)
         
         if retval:
-            for i, decoded_info in enumerate(decoded_infos):
-                if decoded_info:
-                    objects[decoded_info] = points[i]
-                else:
-                    nearest_id = self.get_nearest_object(points[i])
-                    if nearest_id:
-                        objects[nearest_id] = points[i]
-                        print(f"Updating position of {nearest_id}")
-        self.update_positions(objects)
-    
-    def check_qr_code_overlap(self, graph, qr_code_points, proximity_threshold=22):
-        transformed_qr_code_points = []
-        
-        # Apply the affine transformation to the QR code points
-        for point in qr_code_points:
-            transformed_point = uf.apply_inverse_affine_transform(point, self.matrix)  
-            transformed_qr_code_points.append(transformed_point[:2])  # Use x, y coordinates
+            for i, qr_code_info in enumerate(decoded_infos):
+                self.update_position(points[i], qr_code_info)
 
+        for key in self.tracked_objects.keys():
+            try:
+                if key[0] == "a":
+                    qr_code_points = self.tracked_objects[key].astype(int)
+                    overlapping_nodes = self.check_qr_code_overlap(self.graph, qr_code_points)
+                    gr.update_graph_based_on_qr_code(self.graph, overlapping_nodes, self.overlapping_nodes)
+                    self.overlapping_nodes = overlapping_nodes
+            except:
+                print(f"Invalid QR code detected: {key}")
+    
+    def check_qr_code_overlap(self, graph, qr_code_points, proximity_threshold=25):
         # Get the bounding box of the QR code in graph space
-        min_x = min([pt[0] for pt in transformed_qr_code_points])
-        max_x = max([pt[0] for pt in transformed_qr_code_points])
-        min_y = min([pt[1] for pt in transformed_qr_code_points])
-        max_y = max([pt[1] for pt in transformed_qr_code_points])
+        min_x = min([pt[0] for pt in qr_code_points])
+        max_x = max([pt[0] for pt in qr_code_points])
+        min_y = min([pt[1] for pt in qr_code_points])
+        max_y = max([pt[1] for pt in qr_code_points])
         
         # Check for nodes within the bounding box
         overlapping_nodes = gr.find_nodes_within_bounding_box(graph, min_x, max_x, min_y, max_y, proximity_threshold)    
         return overlapping_nodes
     
-    def update_positions(self, objects):
-        for obj in objects:
-            position = objects[obj]  # (x, y) coordinates
+    def update_position(self, position, robot):
+        robot = robot if robot else self.get_nearest_object(position)
+        if robot:
+            try:
+                previous_position = self.tracked_objects[robot]
+                same_position = np.array_equal(position, previous_position)
+                if not same_position:
+                    self.tracked_objects[robot] = position
+                    print(f"updated: {robot} position")
+            except:
+                self.tracked_objects[robot] = position
+                print(f"set the position of {robot}")
 
-            # Update the tracked objects
-            self.tracked_objects[obj] = position
 
     def get_nearest_object(self, points, threshold=400):
         closest_id = None
-        min_distance = float('inf')
-        center_position = uf.find_center_of_square(points)
+        min_distance = gr.INF
+        center_position = uf.find_center_of_rectangle(points)
 
         for obj_id, last_positions in self.tracked_objects.items():
-            last_position_center = uf.find_center_of_square(last_positions)
+            last_position_center = uf.find_center_of_rectangle(last_positions)
             distance = (uf.euclidean_distance(center_position, last_position_center))
             if distance < min_distance and distance < threshold:
                 min_distance = distance

@@ -38,7 +38,7 @@ class UtilityFunctions:
         if w != 0:  # Normalize by w for perspective transformations
             x /= w
             y /= w
-        return x, y
+        return int(x), int(y)
 
     @staticmethod
     def compute_affine_transformation(corners, grid_width, grid_height):
@@ -118,7 +118,7 @@ class UtilityFunctions:
         return contours
     
     @staticmethod
-    def find_center_of_square(positions):
+    def find_center_of_rectangle(positions):
         # (x,y) - (topleft,topright,bottomright,bottomleft)
         top_left = positions[0]
         bottom_right = positions[2]
@@ -127,6 +127,12 @@ class UtilityFunctions:
         center_y = (top_left[1] + bottom_right[1]) // 2 
         
         return (center_x,center_y)
+
+    @staticmethod
+    def show_node_positions(matrix, point = (0,0) ):
+        affine = UtilityFunctions.apply_affine_transform(point, matrix)
+        inverse = UtilityFunctions.apply_inverse_affine_transform(point, matrix)
+        print(f"point: {point}, affine: {affine}, inverse: {inverse}")
 
     @staticmethod
     # Display image close window when q is pressed
