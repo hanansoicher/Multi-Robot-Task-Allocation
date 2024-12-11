@@ -81,6 +81,7 @@ class UtilityFunctions:
         while not corners_found:
             try:
                 points = UtilityFunctions.find_points(image, color_ranges)
+                corners = list(points.values())
                 rectangles = UtilityFunctions.make_rectangle(corners) 
                 corners_found = True
             except:

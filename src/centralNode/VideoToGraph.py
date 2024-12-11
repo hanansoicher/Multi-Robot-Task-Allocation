@@ -105,7 +105,6 @@ class VideoToGraph:
         if refresh_graph:
             corners = uf.find_corners(image)
             if self.corners != corners:
-                # print("updating corners")
                 self.corners = corners
                 self.set_dimensions(corners)
                 self.graph = nx.grid_2d_graph(self.grid_width, self.grid_height)
@@ -139,8 +138,11 @@ class VideoToGraph:
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
 
     def draw_corners_overlay(self, overlay_image):
+        max_y = max(self.corners.values()[1])
         for corner_name, (x,y) in self.corners.items():
-            cv.putText(overlay_image, corner_name, (x-30, y+20), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
+            if y < max_y / 2:
+                y += -100
+            cv.putText(overlay_image, corner_name, (x-200, y), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
         return overlay_image
     
     def find_paths(self, robot_goal):
