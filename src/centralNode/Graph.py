@@ -94,10 +94,13 @@ class Graph(nx.Graph):
                 graph.nodes[node].setdefault(Graph.NEAR_OBSTACLE, False)
 
     def update_graph_based_on_qr_code(graph, overlapping_nodes, previous_overlapping_nodes):
-        for node in overlapping_nodes:
+        subgraph = graph.subgraph(overlapping_nodes)
+        for node in subgraph.nodes:
             graph.nodes[node][Graph.NEAR_OBSTACLE] = True
+
         non_overlapping_nodes = (previous_overlapping_nodes - overlapping_nodes)
-        for node in non_overlapping_nodes:
+        subgraph = graph.subgraph(non_overlapping_nodes)
+        for node in subgraph.nodes:
             graph.nodes[node][Graph.NEAR_OBSTACLE] = False
 
 
@@ -119,8 +122,9 @@ class Graph(nx.Graph):
             return None
 
         path = nx.astar_path(graph, source=start_node, target=goal_node, 
-                            weight= lambda u, v, d: None if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT],
+                            weight= "weight",
                             heuristic=heuristic)
+        # lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT]
         # Check if any edge in the path has infinite weight
         for u, v in zip(path[:-1], path[1:]):
             if graph.edges[u, v].get(Graph.EDGE_WEIGHT, None) == Graph.INF:
@@ -155,9 +159,9 @@ class Graph(nx.Graph):
         for i in range(len(path) - 1):
             node1 = path[i]
             node2 = path[i + 1]
-            weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None)  # Access the weight of the edge
+            weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None)  
             total_weight += weight if weight is not None else 0
-            print(f"Edge {node1} -> {node2}: weight = {weight}")
+            #print(f"Edge {node1} -> {node2}: weight = {weight}")
         print(f"Total path weight: {total_weight}")
 
     @staticmethod
