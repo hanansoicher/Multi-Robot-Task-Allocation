@@ -7,7 +7,7 @@ from util import UtilityFunctions as uf
 from graph import Graph as gr
 
 def main():
-    video = "img/video/test_with_block.mov"
+    video = "img/video/test_red_close.mov"
     vg = VideoToGraph(75, 150, video)
     vg.start_environment()
     vg.tear_down()
@@ -25,6 +25,7 @@ class VideoToGraph:
         self.maze_length = length if metric else length * 2.54
         self.grid_height = 0
         self.grid_width = 0
+        self.block_size_cm = 3.5
         self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
@@ -88,13 +89,9 @@ class VideoToGraph:
             overlay_image = self.draw_overlay(frame, graph)
             self.draw_objects_overlay(overlay_image)
             try:
-                if not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2'):
-                    top_left = self.corners[uf.TOP_LEFT]
-                    bottom_right = gr.find_nearest_node(graph, self.corners[uf.BOTTOM_RIGHT])
-                    path = gr.a_star_from_pixel_pos(graph, top_left, bottom_right)
-                    if path:
-                        overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
-                        self.paths['robot 1'] = path
+                no_robots, overlay_image = self.no_robots(overlay_image)
+                if no_robots:
+                    pass
                 else:
                     paths = self.find_paths(self.robot_goals)
                     for robot_path in paths.keys():
@@ -110,6 +107,17 @@ class VideoToGraph:
             if not self.frame_queue.full():
                 self.frame_queue.put(overlay_image)
             frame_count += 1
+
+    def no_robots(self, overlay_image):
+        no_robots = not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2')
+        if no_robots:
+            top_left = self.corners[uf.TOP_LEFT]
+            bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
+            path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
+            if path:
+                overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
+                self.paths['robot 1'] = path
+        return no_robots, overlay_image
     
     def convert_image_to_graph(self, image, refresh_graph):
         if refresh_graph:
@@ -151,8 +159,8 @@ class VideoToGraph:
         max_y = max(self.corners.values(), key=lambda p: p[1])[1]
         for corner_name, (x,y) in self.corners.items():
             if y < max_y / 2:
-                x += 50
-                y -= 100
+                x += 50 # text position adjustment
+                y -= 100 
             cv.putText(overlay_image, corner_name, (x-150, y+50), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
         return overlay_image
     
@@ -172,14 +180,14 @@ class VideoToGraph:
         for robot, goal in goals.items():
             self.robot_goals[robot] = goal
 
-    def set_dimensions(self, corners, block_size_cm=3.5):
+    def set_dimensions(self, corners):
         try:
             # Compute grid dimensions based on the block size and image size
-            image_width_px = corners['top_right'][0] - corners['top_left'][0]
-            image_height_px = corners['bottom_left'][1] - corners['top_left'][1]
+            image_width_px = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
+            image_height_px = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
 
-            pixel_block_height_px  = (block_size_cm / self.maze_height) * image_height_px
-            pixel_block_width_px = (block_size_cm / self.maze_length) * image_width_px
+            pixel_block_height_px  = (self.block_size_cm / self.maze_height) * image_height_px
+            pixel_block_width_px = (self.block_size_cm / self.maze_length) * image_width_px
 
             self.grid_width = int(image_width_px / pixel_block_width_px)
             self.grid_height = int(image_height_px / pixel_block_height_px)     
@@ -203,9 +211,12 @@ class VideoToGraph:
     def detect_objects(self, image):
         # Initialize the QR code detector
         self.qcd = cv.QRCodeDetector() if self.qcd is None else self.qcd
+
+        gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+        _, thresh = cv.threshold(gray, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
         
         # Detect and decode QR codes
-        retval, decoded_infos, points, _ = self.qcd.detectAndDecodeMulti(image)
+        retval, decoded_infos, points, _ = self.qcd.detectAndDecodeMulti(thresh)
         
         if retval:
             for i, qr_code_info in enumerate(decoded_infos):
@@ -257,6 +268,10 @@ class VideoToGraph:
                 closest_id = obj_id
 
         return closest_id
+    
+    def overlay_text(self, image, text, position):
+        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
+        return image
 
 if __name__ == "__main__":
     main()
