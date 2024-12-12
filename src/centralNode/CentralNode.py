@@ -1,6 +1,7 @@
 import VideoToGraph as v2g
 import time
 import cv2 as cv
+from util import UtilityFunctions as uf
 from graph import Graph as gr
 
 def main():
@@ -29,25 +30,26 @@ def driver_code(video_input, robots):
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
+                frame = central_node.vg.overlay_text(frame, f"blocksize in cm: {central_node.vg.block_size_cm}", (50,50))
+                frame = central_node.vg.overlay_text(frame, f"Update rate: {central_node.vg.overlay_update_frame_interval}", (100,100))
                 cv.imshow(f'video feed: {video_input}', frame)
+            if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
+                break
             if time.time() - last_time > 2:  
                 last_time = time.time()
                 instructions = central_node.run_solver()
                 central_node.send_instructions(instructions)
-
+        
             if cv.waitKey(1) == ord('r'):
-                central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 12) + 2.5
+                central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
 
+            if cv.waitKey(1) == ord('t'):
+                central_node.vg.overlay_update_frame_interval = (central_node.vg.overlay_update_frame_interval % 20) + 2
 
-                
-            if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
-                break
     finally:
         central_node.tear_down()
         print("Final block finished")
     
-
-
 class CentralNode:
 
     HEIGHT_CM = 75
@@ -113,7 +115,7 @@ class CentralNode:
         pass
 
     def tear_down(self):
-        # Stop the thread and release resources
+        # Stop the thread and release resources 
         self.vg.tear_down()
         if self.vg.thread.is_alive():
             print(f"Thread {self.vg.thread.getName()} is alive: {self.vg.thread.is_alive()}")
