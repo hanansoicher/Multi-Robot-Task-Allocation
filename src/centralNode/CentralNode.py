@@ -14,10 +14,7 @@ def main():
     video_fed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
     for video_input in video_fed:
         driver_code(video_input, robots)
-        print("Video feed completed: ",video_input)
-    
-
-
+        print("Video feed completed: ", video_input)
 
 def driver_code(video_input, robots):
     # parse the video adjust parameter to 0 to use webcam 
@@ -29,21 +26,19 @@ def driver_code(video_input, robots):
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
-        i, frames = 0, 0
-        FRAME_MULTIPLIER = 100
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-                i +=1 
-                cv.imshow(f'frame_with_overlay', frame)
-                if i % FRAME_MULTIPLIER == 0:
-                    frames += 1
-                    print(f"frames process: {frames * FRAME_MULTIPLIER}")
-
+                cv.imshow(f'video feed: {video_input}', frame)
             if time.time() - last_time > 2:  
                 last_time = time.time()
                 instructions = central_node.run_solver()
                 central_node.send_instructions(instructions)
+
+            if cv.waitKey(1) == ord('r'):
+                central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 12) + 2.5
+
+
                 
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
@@ -55,15 +50,17 @@ def driver_code(video_input, robots):
 
 class CentralNode:
 
+    HEIGHT_CM = 75
+    LENGTH_CM = 150
     def __init__(self, camera_input, robots):
         self.bluetooth_client = self.init_bluetooth_module()
         self.robots = self.init_robots(robots, self.bluetooth_client) # ensure connection is established
-        self.vg = v2g.VideoToGraph(75, 150, camera_input)
+        self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input)
         self.mrta_solver = self.init_mrta_solver()
         self.robot_calibration_and_sync()
 
     def init_robots(self, robots, bluetooth_client):
-        print(robots)
+        print("initialized robots: ",robots)
         pass
 
     def init_bluetooth_module(self):
@@ -79,7 +76,10 @@ class CentralNode:
 
         print("graph: ", graph)
         print("paths: ", paths)
-        print("path: distance: ", gr.print_path_weights(graph, paths['robot 1']))
+        try:
+            gr.print_path_weights(graph, paths['robot 1'])
+        except Exception as e:
+            print(e)
 
         task_stream = self.create_task_stream(graph, paths, self.robots)
 
@@ -114,7 +114,6 @@ class CentralNode:
 
     def tear_down(self):
         # Stop the thread and release resources
-        print(self.vg.thread.is_alive())
         self.vg.tear_down()
         if self.vg.thread.is_alive():
             print(f"Thread {self.vg.thread.getName()} is alive: {self.vg.thread.is_alive()}")
