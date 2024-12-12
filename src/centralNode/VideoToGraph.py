@@ -148,14 +148,12 @@ class VideoToGraph:
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
 
     def draw_corners_overlay(self, overlay_image):
-        max_y = max(self.corners.values())[1]
+        max_y = max(self.corners.values(), key=lambda p: p[1])[1]
         for corner_name, (x,y) in self.corners.items():
             if y < max_y / 2:
-                y += -100
-            cv.putText(overlay_image, corner_name, (x-200, y), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
-            if y < max_y / 2:
-                y += -100
-            cv.putText(overlay_image, corner_name, (x-200, y), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
+                x += 50
+                y -= 100
+            cv.putText(overlay_image, corner_name, (x-150, y+50), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
         return overlay_image
     
     def find_paths(self, robot_goal):
