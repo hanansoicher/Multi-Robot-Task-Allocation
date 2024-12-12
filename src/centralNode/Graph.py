@@ -149,6 +149,7 @@ class Graph(nx.Graph):
         nearest_node = min(distances, key=distances.get)
         return nearest_node
 
+    @staticmethod
     def print_path_weights(graph, path):
         total_weight = 0
         for i in range(len(path) - 1):

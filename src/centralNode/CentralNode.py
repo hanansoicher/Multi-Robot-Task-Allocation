@@ -1,10 +1,9 @@
 import VideoToGraph as v2g
 import time
 import cv2 as cv
+from graph import Graph as gr
 
 def main():
-    video = "img/video/test_with_block.mov"
-    webcam = "img/video/test_with_webcam.mov"
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
@@ -12,12 +11,22 @@ def main():
         'robot 1': 'R1:XX', #MAC address
         'robot 2': 'R2:XX:', 
     }
-    central_node = CentralNode(web_cam_further_angle, robots)
+    video_fed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
+    for video_input in video_fed:
+        driver_code(video_input, robots)
+        print("Video feed completed: ",video_input)
+    
+
+
+
+def driver_code(video_input, robots):
+    # parse the video adjust parameter to 0 to use webcam 
+    central_node = CentralNode(video_input, robots)
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
 
-
+    central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
         i, frames = 0, 0
@@ -33,14 +42,14 @@ def main():
 
             if time.time() - last_time > 2:  
                 last_time = time.time()
-                # instructions = central_node.run_solver()
-                # central_node.send_instructions(instructions)
+                instructions = central_node.run_solver()
+                central_node.send_instructions(instructions)
                 
-            if cv.waitKey(1) == ord('q'):
+            if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
     finally:
         central_node.tear_down()
-        print("done")
+        print("Final block finished")
     
 
 
@@ -70,6 +79,7 @@ class CentralNode:
 
         print("graph: ", graph)
         print("paths: ", paths)
+        print("path: distance: ", gr.print_path_weights(graph, paths['robot 1']))
 
         task_stream = self.create_task_stream(graph, paths, self.robots)
 
@@ -104,7 +114,12 @@ class CentralNode:
 
     def tear_down(self):
         # Stop the thread and release resources
+        print(self.vg.thread.is_alive())
         self.vg.tear_down()
+        if self.vg.thread.is_alive():
+            print(f"Thread {self.vg.thread.getName()} is alive: {self.vg.thread.is_alive()}")
+            self.vg.thread.join()
+        print("Tear down done")
 
 if __name__ == "__main__":
     main()

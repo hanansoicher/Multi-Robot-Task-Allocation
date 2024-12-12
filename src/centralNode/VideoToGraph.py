@@ -6,7 +6,6 @@ import queue
 from util import UtilityFunctions as uf
 from graph import Graph as gr
 
-
 def main():
     video = "img/video/test_with_block.mov"
     vg = VideoToGraph(75, 150, video)
@@ -15,7 +14,7 @@ def main():
 
 class VideoToGraph:
 
-    #initilaize
+    #initialize
     def __init__(self, width, length, video_file, metric = True):
 
         # video feed
@@ -44,7 +43,7 @@ class VideoToGraph:
         self.running = True
         self.thread = threading.Thread(target=self.start_environment, daemon=True)
         self.thread.start()
-
+        self.overlay_update_frame_interval = 1
 
     # Video input
     def initialize_camera(self, camera = int(0)):
@@ -59,12 +58,15 @@ class VideoToGraph:
     # Release the camera 
     def tear_down(self):
         self.running = False
-        self.thread.join()
         self.cap.release()
+        try:
+            self.thread.join()
+        except:
+            print("Thread couldn't be joined")
         cv.destroyAllWindows()
 
     # Create and update graph from the video input
-    def start_environment(self, overlay_update_frame_interval=1):
+    def start_environment(self):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
         while self.running:
@@ -73,11 +75,11 @@ class VideoToGraph:
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
-                self.cap.release()
+                self.running = False
                 break
 
-            refresh_graph = True if frame_count % overlay_update_frame_interval*3 == 0 else False
-            update = frame_count % overlay_update_frame_interval == 0
+            refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
+            update = frame_count % self.overlay_update_frame_interval == 0
             if update:
                 graph = self.convert_image_to_graph(frame, refresh_graph)
                 self.detect_objects(frame)
@@ -86,12 +88,20 @@ class VideoToGraph:
             overlay_image = self.draw_overlay(frame, graph)
             self.draw_objects_overlay(overlay_image)
             try:
-                paths = self.find_paths(self.robot_goals)
-                for robot_path in paths.keys():
-                    if robot_path:
-                        path = paths[robot_path]
+                if not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2'):
+                    top_left = self.corners[uf.TOP_LEFT]
+                    bottom_right = gr.find_nearest_node(graph, self.corners[uf.BOTTOM_RIGHT])
+                    path = gr.a_star_from_pixel_pos(graph, top_left, bottom_right)
+                    if path:
                         overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
-                        self.paths[robot_path] = path
+                        self.paths['robot 1'] = path
+                else:
+                    paths = self.find_paths(self.robot_goals)
+                    for robot_path in paths.keys():
+                        if robot_path:
+                            path = paths[robot_path]
+                            overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
+                            self.paths[robot_path] = path
             except:
                 if update:
                     print("Couldn't find path")
@@ -229,10 +239,8 @@ class VideoToGraph:
                 same_position = np.array_equal(position, previous_position)
                 if not same_position:
                     self.tracked_objects[robot] = position
-                    # print(f"updated: {robot} position")
             except:
                 self.tracked_objects[robot] = position
-                # print(f"set the position of {robot}")
 
 
     def get_nearest_object(self, points, threshold=400):
