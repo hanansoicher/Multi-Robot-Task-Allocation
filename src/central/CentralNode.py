@@ -2,7 +2,7 @@ import VideoToGraph as v2g
 import time
 import cv2 as cv
 from util import UtilityFunctions as uf
-from graph import Graph as gr
+from Graph import Graph as gr
 
 def main():
     web_cam_close = "img/video/webcam_red_close.mov"

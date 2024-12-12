@@ -4,7 +4,7 @@ import numpy as np
 import threading
 import queue
 from util import UtilityFunctions as uf
-from graph import Graph as gr
+from Graph import Graph as gr
 
 def main():
     video = "img/video/test_red_close.mov"
