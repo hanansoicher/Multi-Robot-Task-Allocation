@@ -153,6 +153,9 @@ class VideoToGraph:
             if y < max_y / 2:
                 y += -100
             cv.putText(overlay_image, corner_name, (x-200, y), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
+            if y < max_y / 2:
+                y += -100
+            cv.putText(overlay_image, corner_name, (x-200, y), cv.FONT_HERSHEY_SIMPLEX, 1.5, (0,0,0), 3)
         return overlay_image
     
     def find_paths(self, robot_goal):
