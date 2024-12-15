@@ -13,7 +13,7 @@ class UtilityFunctions:
 
     @staticmethod
     def euclidean_distance(point1, point2):
-        return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1]-point1[1]) ** 2)    
+            return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1]-point1[1]) ** 2)    
     
     @staticmethod
     # Function to apply affine transformation to a point
@@ -185,3 +185,16 @@ class UtilityFunctions:
     def visualize_mask(hsv, lower, upper):
         mask = cv.inRange(hsv, lower, upper)
         cv.imshow("Mask", mask)
+
+    @staticmethod
+    def kahan_sum(numbers):
+        total = 0.0     
+        c = 0.0         
+
+        for num in numbers:
+            y = num - c     
+            t = total + y   
+            c = (t - total) - y  
+            total = t      
+
+        return total    

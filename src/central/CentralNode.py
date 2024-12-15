@@ -14,11 +14,13 @@ def main():
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
+    web_cam_distance = "img/video/center_test.mov"
     robots = {
-        'robot 1': 'R1:XX', #MAC address
-        'robot 2': 'R2:XX:', 
+        'robot 1': {'START': (0,0)} #,'R1:XX'}, # start, MAC address
+        # 'robot 2': 'R2:XX:', 
     }
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
+    video_feed = [web_cam_distance]
     for video_input in video_feed:
         driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
@@ -31,6 +33,7 @@ def driver_code(video_input, robots):
         print("Waiting for corners to be detected")
         time.sleep(1)
 
+    
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
@@ -42,16 +45,17 @@ def driver_code(video_input, robots):
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
-            if time.time() - last_time > 2:  
+            if time.time() - last_time > 2 and robots['robot 1']['START'] != (0,0):  
                 last_time = time.time()
+                print(robots['robot 1']['START'])
                 if not solver_ran:
-                    solution = central_node.run_solver()
+                    solution = central_node.run_solver(robots)
                     solver_ran = True
                     schedules = central_node.convert_solution_to_schedules(solution)
                     instructions = central_node.generate_point_to_point_movement_instructions(schedules)
-                    central_node.send_instructions(instructions)
-                    break
-        
+                    print("Instructions: ", instructions)
+                    # central_node.send_instructions(instructions)
+
             if cv.waitKey(1) == ord('r'):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
 
@@ -64,22 +68,23 @@ def driver_code(video_input, robots):
     
 class CentralNode:
 
-    HEIGHT_CM = 75
-    LENGTH_CM = 150
+    CORNER_OFFSET_CM = 0.5 # offset from the corner to the edge of our rectangle
+    HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
+    LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
         self.bluetooth_client = self.init_bluetooth_module()
-        self.robots = self.init_robots(robots, self.bluetooth_client) # ensure connection is established
-        self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input)
+        self.robots = self.init_robots(robots) # ensure connection is established
+        self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
         self.robot_calibration_and_sync()
 
-    def init_robots(self, robots, bluetooth_client):
+    def init_robots(self, robots):
         print("initialized robots: ",robots)
         pass
 
     def init_bluetooth_module(self):
         pass
 
-    def run_solver(self):
+    def run_solver(self, robots):
         # create and get the necessary input for mrta solver
         graph = self.vg.graph
         paths = self.vg.paths
@@ -87,38 +92,25 @@ class CentralNode:
         print("graph: ", graph)
         print("paths: ", paths)
         try:
-            gr.print_path_weights(graph, paths['robot 1'])
+            gr.print_path_weights(graph, paths['robot 2'])
         except Exception as e:
             print(e)
 
         agents = [
-            Robot(id=0, start=(10,1)),
-            Robot(id=1, start=(1,9)),
+            Robot(id=0, start=robots['robot 2']['START']),
+            # Robot(id=1, start=(1,9)),
         ]
         tasks = [
-            Task(id=0, start=(11,1),  end=(15,2), deadline=1000),
-            Task(id=1, start=(2,2),  end=(15,1), deadline=1000),
-            Task(id=2, start=(33, 4),  end=(7,1),  deadline=1000),
+            Task(id=0, start=(11,1),  end=(15,2), deadline=10000),
+            Task(id=1, start=(2,2),  end=(15,1), deadline=10000),
+            Task(id=2, start=(33, 4),  end=(7,1),  deadline=15000),
             # Task(id=3, start=(3,2),  end=(9, 4), deadline=3500),
             # Task(id=4, start=(7,9), end=(7,7),  deadline=4000)
         ]
         tasks_stream = [[tasks, 0]]
         self.agents = agents
         self.tasks = tasks
-        # ap_set = set()
-        # for a in agents:
-        #     ap_set.add(graph.nodes[a.start].get('pos'))
-        # for t in tasks:
-        #     ap_set.add(graph.nodes[t.start].get('pos'))
-        #     ap_set.add(graph.nodes[t.end].get('pos'))
-        
-        # for a in agents:
-        #     ap_set.add(a.start)
-        # for t in tasks:
-        #     ap_set.add(t.start)
-        #     ap_set.add(t.end)
 
-        
         # Ensure elements are added as the last element
         ap_set = []
         for a in agents:
@@ -155,9 +147,8 @@ class CentralNode:
                         print(path)
                         solver_graph[i][j] = gr.print_path_weights(graph, path)
                         solver_graph[j][i] = gr.print_path_weights(graph, path)
-                    except:
-                        solver_graph[i][j] = 10000
-                        solver_graph[j][i] = 10000
+                    except Exception as e:
+                        print(e)
 
         solver = MRTASolver(
             solver_name='z3',
