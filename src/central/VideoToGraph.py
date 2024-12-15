@@ -132,6 +132,7 @@ class VideoToGraph:
             bottom_left = (0, self.graph_y_nodes - 1)
             bottom_right = (self.graph_x_nodes - 1, self.graph_y_nodes - 1)
 
+            print("length Height Diagonal") 
             gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, top_right, gr.heuristic))
             gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, bottom_left, gr.heuristic))
             gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, bottom_right, gr.heuristic))
@@ -249,6 +250,7 @@ class VideoToGraph:
             height = gr.adjust_distance_based_on_correction(self.graph, top_left, bottom_left, self.square_pixel_height, 0, 0, self.square_height_cm)
             diagonal = gr.adjust_distance_based_on_correction(self.graph, top_left, bottom_right, 0, 0, (self.square_pixel_height**2 + self.square_pixel_length**2)**0.5,(self.square_length_cm**2 + self.square_height_cm**2)**0.5)
 
+            
             print(f"Length: {length} cm, Height: {height} cm, Diagonal: {diagonal} cm")
 
         except Exception as e:

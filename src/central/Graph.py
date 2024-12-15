@@ -101,11 +101,11 @@ class Graph(nx.Graph):
             ratio = float('inf')
             direction = Graph.direction(node_a, node_b)
             if direction == Graph.DIAGONAL:
-                ratio = pixel_distance / center_standard_diagonal
+                ratio = pixel_distance / center_standard_diagonal / 0.99
             if direction == Graph.HORIZONTAL:
                 ratio = pixel_distance / center_standard_length 
             if direction == Graph.VERTICAL: 
-                ratio = pixel_distance / center_standar_height 
+                ratio = pixel_distance / center_standar_height / 0.97
             distance_in_cm =  ratio * block_size_in_cm    
             return distance_in_cm   
 
