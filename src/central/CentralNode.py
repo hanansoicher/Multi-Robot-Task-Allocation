@@ -4,8 +4,8 @@ import time
 import cv2 as cv
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
-import sys
-import os
+import sys  
+import os 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from SMrTa.MRTASolver import MRTASolver
 from SMrTa.MRTASolver.objects import Robot, Task
@@ -111,12 +111,13 @@ class CentralNode:
         # for t in tasks:
         #     ap_set.add(graph.nodes[t.start].get('pos'))
         #     ap_set.add(graph.nodes[t.end].get('pos'))
-
+        
         # for a in agents:
         #     ap_set.add(a.start)
         # for t in tasks:
         #     ap_set.add(t.start)
         #     ap_set.add(t.end)
+
         
         # Ensure elements are added as the last element
         ap_set = []
@@ -324,7 +325,7 @@ class CentralNode:
     def send_instruction(self, robot, instruction):
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
-        self.bluetooth_client.send(robot, instruction)
+        # self.bluetooth_client.send(robot, instruction)
 
     def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
