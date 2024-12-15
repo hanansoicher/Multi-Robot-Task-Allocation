@@ -219,7 +219,6 @@ class CentralNode:
                     path = path.nodes
                     print(path)
 
-
     def send_instructions(self, instructions):
         for robot, instruction in instructions.items():
             self.send_instruction(robot, instruction)
