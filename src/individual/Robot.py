@@ -4,6 +4,7 @@ from bleak import BleakClient
 
 # Device address
 device_address = "B0:D2:78:32:EA:6C"
+#device_address = "8386512F-23A5-9409-4353-C3E8EB1C6C4B" # Henrik
 # UUID for the writable characteristic
 write_uuid = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
