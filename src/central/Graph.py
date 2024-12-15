@@ -75,39 +75,36 @@ class Graph(nx.Graph):
     HORIZONTAL = "horizontal"
     VERTICAL = "vertical"
 
-    def adjust_graph_weights(graph, center_standar_height, center_standard_length, center_standard_diagonal, block_size_in_cm):
+    def adjust_graph_weights(graph, conversion):
         for edge in graph.edges():
             node_a, node_b = edge
             if Graph.is_node_near_obstacle(graph, node_a, node_b):
                 graph.edges[node_a, node_b][Graph.EDGE_WEIGHT] = Graph.INF
                 graph.edges[node_b, node_a][Graph.EDGE_WEIGHT] = Graph.INF
             else:
-                distance_in_cm = Graph.adjust_distance_based_on_correction(graph, node_a, node_b, center_standar_height, 
-                                                                    center_standard_length, center_standard_diagonal,
-                                                                    block_size_in_cm)
-
+                distance_in_cm = Graph.adjust_distance_based_on_correction(graph, node_a, node_b, conversion)
                 graph.edges[node_a, node_b][Graph.EDGE_WEIGHT] = distance_in_cm
                 graph.edges[node_b, node_a][Graph.EDGE_WEIGHT] = distance_in_cm
         return graph
     
     @staticmethod
-    def adjust_distance_based_on_correction(graph, node_a, node_b, center_standar_height, center_standard_length, center_standard_diagonal, block_size_in_cm):
-            node_a_x, node_a_y, w = graph.nodes[node_a][Graph.PIXEL_POS]
-            node_b_x, node_b_y, w = graph.nodes[node_b][Graph.PIXEL_POS]
+    def adjust_distance_based_on_correction(graph, node_a, node_b, conversion):
+            node_a_x, node_a_y, _ = graph.nodes[node_a][Graph.PIXEL_POS]
+            node_b_x, node_b_y, _ = graph.nodes[node_b][Graph.PIXEL_POS]
             pixel_distance = uf.euclidean_distance((node_a_x,node_a_y), (node_b_x, node_b_y))
-            # pixel_distance = pixel_distance * w
 
             # adjust the weight based on direction
-            ratio = float('inf')
+            distance_in_cm = float('inf')
             direction = Graph.direction(node_a, node_b)
             if direction == Graph.DIAGONAL:
-                ratio = pixel_distance / center_standard_diagonal / 0.99
-            if direction == Graph.HORIZONTAL:
-                ratio = pixel_distance / center_standard_length 
-            if direction == Graph.VERTICAL: 
-                ratio = pixel_distance / center_standar_height / 0.97
-            distance_in_cm =  ratio * block_size_in_cm    
-            return distance_in_cm   
+                distance_in_cm = pixel_distance * conversion[2] 
+            
+            elif direction == Graph.HORIZONTAL:
+                distance_in_cm = pixel_distance * conversion[0]
+
+            elif direction == Graph.VERTICAL: 
+                distance_in_cm = pixel_distance * conversion[1]
+            return distance_in_cm
 
     @staticmethod
     def direction(node_a, node_b):
@@ -197,14 +194,19 @@ class Graph(nx.Graph):
     @staticmethod
     def print_path_weights(graph, path):
         total_weight = []
+        pixel_distances = []
         for i in range(len(path) - 1):
             node1 = path[i]
             node2 = path[i + 1]
             weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None) 
             weight = Graph.INF if weight is None else weight 
+            pixel_dist = uf.euclidean_distance(graph.nodes[node1][Graph.PIXEL_POS], graph.nodes[node2][Graph.PIXEL_POS])
             total_weight.append(weight)
+            pixel_distances.append(pixel_dist)
         total = uf.kahan_sum(total_weight)
-        print(f"Total path weight: {total}")
+        total_pixel_dist = uf.kahan_sum(pixel_distances)
+        print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
+
         return total
 
     
