@@ -4,6 +4,11 @@ import time
 import cv2 as cv
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
+import sys  
+import os 
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 from SMrTa.MRTASolver import MRTASolver
 from SMrTa.MRTASolver.objects import Robot, Task
 
