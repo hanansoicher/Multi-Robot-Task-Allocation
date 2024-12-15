@@ -105,11 +105,11 @@ class CentralNode:
         tasks_stream = [[tasks, 0]]
 
         ap_set = set()
-        for a in agents:
-            ap_set.add(a.start)
-        for t in tasks:
-            ap_set.add(t.start)
-            ap_set.add(t.end)
+        # for a in agents:
+        #     ap_set.add(a.start)
+        # for t in tasks:
+        #     ap_set.add(t.start)
+        #     ap_set.add(t.end)
 
         self.action_points = sorted(list(ap_set))
         num_aps = len(self.action_points)
