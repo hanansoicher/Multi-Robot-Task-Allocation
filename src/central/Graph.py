@@ -119,8 +119,6 @@ class Graph(nx.Graph):
         else:
             return None
         
-        
-
 
     def update_graph_based_on_obstacle(graph, contour, proximity_threshold):
         for node in graph.nodes:
@@ -160,7 +158,7 @@ class Graph(nx.Graph):
             return None
 
         path = nx.astar_path(graph, source=start_node, target=goal_node, 
-                            weight= "weight",
+                            weight= lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT],
                             heuristic=heuristic)
         # lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT]
         # Check if any edge in the path has infinite weight
@@ -199,7 +197,6 @@ class Graph(nx.Graph):
             node1 = path[i]
             node2 = path[i + 1]
             weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None) 
-            weight = Graph.INF if weight is None else weight 
             pixel_dist = uf.euclidean_distance(graph.nodes[node1][Graph.PIXEL_POS], graph.nodes[node2][Graph.PIXEL_POS])
             total_weight.append(weight)
             pixel_distances.append(pixel_dist)
