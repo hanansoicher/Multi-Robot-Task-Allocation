@@ -4,6 +4,13 @@ import json
 from bleak import BleakClient, BleakScanner
 
 
+# Device address
+device_address = "B0:D2:78:32:EA:6C"
+#device_address = "8386512F-23A5-9409-4353-C3E8EB1C6C4B" # Henrik
+# UUID for the writable characteristic
+write_uuid = "0000ffe1-0000-1000-8000-00805f9b34fb"
+
+
 class Robot:
     def __init__(self, device_address: str, device_name: str, characteristic_uuid: str, reconnect_time = 2):
         """Initialize the Robot class with the Bluetooth device address."""
