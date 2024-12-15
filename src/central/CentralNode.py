@@ -71,9 +71,6 @@ class CentralNode:
     def init_bluetooth_module(self):
         pass
 
-    def init_mrta_solver(self):
-        pass
-
     def run_solver(self):
         # create and get the necessary input for mrta solver
         graph = self.vg.graph
@@ -202,6 +199,26 @@ class CentralNode:
                 task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
                 print(f"{step['time']:5d} | {step['location']:8d} | {step['action']:7s} | {task_str}") 
         return robot_schedules
+
+    def generate_point_to_point_movement_instructions(self, robot_schedules):
+            MOVE_DURATION = 200  # time to move between neighboring intersections
+            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
+            PICKUP_CMD = "P" # Do a spin
+            DROPOFF_CMD = "D" # Do a spin
+            FORWARD_CMD = "F"
+            TURN_LEFT_CMD = "L"
+            TURN_RIGHT_CMD = "R"
+            for robot_id, rschedule in enumerate(robot_schedules):
+
+                for i in range(len(rschedule)-1):
+                    src = rschedule[i]['location']
+                    dest = rschedule[i+1]['location']
+
+                    # Compute full path between src and dest
+                    path = gr.safe_astar_path(self.vg.graph, src, dest)
+                    path = path.nodes
+                    print(path)
+
 
     def send_instructions(self, instructions):
         for robot, instruction in instructions.items():
