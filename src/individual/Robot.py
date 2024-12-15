@@ -248,15 +248,18 @@ def main():
 
 
     d = dct["devices"][0]
+    d2 = dct["devices"][1]
+
     robot = Robot(d["address"], "149_Proj_G8", d["write_uuid"])
+    robot2 = Robot(d2["address"], "149_Proj_G8", d2["write_uuid"])
 
     print(robot.bump_statuses())
     print("Got status", robot.status())
     print("Got encoder ticks", robot.encoders())
     print("\n\n\n PHASE 1 COMPLETE \n\n\n")
 
-    # robot.move(5)
-    # print("Got encoder ticks", robot.encoders())
+    robot2.move(5)
+    print("Got encoder ticks", robot.encoders())
 
     
     print(robot.get_angle_data())
