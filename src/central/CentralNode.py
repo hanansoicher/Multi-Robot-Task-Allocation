@@ -6,9 +6,7 @@ from util import UtilityFunctions as uf
 from Graph import Graph as gr
 import sys  
 import os 
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
 from SMrTa.MRTASolver import MRTASolver
 from SMrTa.MRTASolver.objects import Robot, Task
 
@@ -26,6 +24,7 @@ def main():
         print("Video feed completed: ", video_input)
 
 def driver_code(video_input, robots):
+    solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
     while len(central_node.vg.corners) < 4:
@@ -45,8 +44,13 @@ def driver_code(video_input, robots):
                 break
             if time.time() - last_time > 2:  
                 last_time = time.time()
-                instructions = central_node.run_solver()
-                central_node.send_instructions(instructions)
+                if not solver_ran:
+                    solution = central_node.run_solver()
+                    solver_ran = True
+                    schedules = central_node.convert_solution_to_schedules(solution)
+                    instructions = central_node.generate_point_to_point_movement_instructions(schedules)
+                    central_node.send_instructions(instructions)
+                    break
         
             if cv.waitKey(1) == ord('r'):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
@@ -66,7 +70,6 @@ class CentralNode:
         self.bluetooth_client = self.init_bluetooth_module()
         self.robots = self.init_robots(robots, self.bluetooth_client) # ensure connection is established
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input)
-        self.mrta_solver = self.init_mrta_solver()
         self.robot_calibration_and_sync()
 
     def init_robots(self, robots, bluetooth_client):
@@ -74,9 +77,6 @@ class CentralNode:
         pass
 
     def init_bluetooth_module(self):
-        pass
-
-    def init_mrta_solver(self):
         pass
 
     def run_solver(self):
@@ -92,27 +92,48 @@ class CentralNode:
             print(e)
 
         agents = [
-            Robot(id=0, start=graph.nodes.get((5,5))),
-            Robot(id=1, start=graph.nodes.get((15,15)))
+            Robot(id=0, start=(10,1)),
+            Robot(id=1, start=(1,9)),
         ]
         tasks = [
-            Task(id=0, start=graph.nodes.get((5,5)),  end=graph.nodes.get((10,10)), deadline=1000),
-            Task(id=1, start=graph.nodes.get((11,8)),  end=graph.nodes.get((5,5)), deadline=2500),
-            Task(id=2, start=graph.nodes.get((2,15)),  end=graph.nodes.get((7,6)),  deadline=3000),
-            Task(id=3, start=graph.nodes.get((11,12)),  end=graph.nodes.get((12, 4)), deadline=3500),
-            Task(id=4, start=graph.nodes.get((17,9)), end=graph.nodes.get((13,19)),  deadline=4000)
+            Task(id=0, start=(11,1),  end=(15,2), deadline=1000),
+            Task(id=1, start=(2,2),  end=(15,1), deadline=1000),
+            Task(id=2, start=(33, 4),  end=(7,1),  deadline=1000),
+            # Task(id=3, start=(3,2),  end=(9, 4), deadline=3500),
+            # Task(id=4, start=(7,9), end=(7,7),  deadline=4000)
         ]
         tasks_stream = [[tasks, 0]]
-
-        ap_set = set()
+        self.agents = agents
+        self.tasks = tasks
+        # ap_set = set()
+        # for a in agents:
+        #     ap_set.add(graph.nodes[a.start].get('pos'))
+        # for t in tasks:
+        #     ap_set.add(graph.nodes[t.start].get('pos'))
+        #     ap_set.add(graph.nodes[t.end].get('pos'))
+        
         # for a in agents:
         #     ap_set.add(a.start)
         # for t in tasks:
         #     ap_set.add(t.start)
         #     ap_set.add(t.end)
 
-        self.action_points = sorted(list(ap_set))
+        
+        # Ensure elements are added as the last element
+        ap_set = []
+        for a in agents:
+            if a.start not in ap_set:
+                ap_set.append(a.start)
+        for t in tasks:
+            if t.start not in ap_set:
+                ap_set.append(t.start)
+            if t.end not in ap_set:
+                ap_set.append(t.end)
+
+        self.action_points = ap_set
         num_aps = len(self.action_points)
+        print("Action points: ", ap_set)
+        print("Action points: ", self.action_points)
 
         # Remap agent and task start/end indices into the action_points indices [0, len(action_points)-1], leaving self.action_points containing the intersection id of the action point
         for a in agents:
@@ -123,16 +144,17 @@ class CentralNode:
             t.end = self.action_points.index(t.end)
 
         solver_size = len(self.action_points)
-        solver_graph = np.ones((solver_size, solver_size), dtype=int) * 10000
+        solver_graph = np.ones((solver_size, solver_size)) * 10000
         for i in range(solver_size):
             for j in range(solver_size):
                 if i == j:
                     solver_graph[i][j] = 0
                 else:
                     try:
-                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic(self.action_points[i], self.action_points[j]))
-                        solver_graph[i][j] = int(gr.print_path_weights(graph, path))
-                        solver_graph[j][i] = int(gr.print_path_weights(graph, path))
+                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic)
+                        print(path)
+                        solver_graph[i][j] = gr.print_path_weights(graph, path)
+                        solver_graph[j][i] = gr.print_path_weights(graph, path)
                     except:
                         solver_graph[i][j] = 10000
                         solver_graph[j][i] = 10000
@@ -153,8 +175,7 @@ class CentralNode:
             print("No solution found!")
             return None
 
-        instructions = self.convert_solution_to_schedules(solver.sol)
-        return instructions
+        return solver.sol
 
     def convert_solution_to_schedules(self, solution):
         num_robots = len(solution['agt'])
@@ -188,13 +209,12 @@ class CentralNode:
                         location = self.action_points[self.tasks[task_idx].end]
                     task_num = task_idx
 
-                if location is not None and action_type is not None:
-                    schedule.append({
-                        'time': time,
-                        'location': location,
-                        'action': action_type,
-                        'task_id': task_num
-                    })
+                schedule.append({
+                    'time': time,
+                    'location': location,
+                    'action': action_type,
+                    'task_id': task_num
+                })
             schedule.sort(key=lambda x: x['time'])
             robot_schedules.append(schedule)
 
@@ -205,18 +225,107 @@ class CentralNode:
             
             for step in schedule:
                 task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
-                print(f"{step['time']:5d} | {step['location']:8d} | {step['action']:7s} | {task_str}") 
+                print(f"{step['time']} | {step['location']} | {step['action']} | {task_str}") 
         return robot_schedules
 
+    def generate_point_to_point_movement_instructions(self, robot_schedules):
+            MOVE_DURATION = 200  # time to move between neighboring intersections
+            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
+            PICKUP_CMD = "P" # Do a spin
+            DROPOFF_CMD = "D" # Do a spin
+            FORWARD_CMD = "F"
+            TURN_LEFT_CMD = "L"
+            TURN_RIGHT_CMD = "R"
+            for robot_id, rschedule in enumerate(robot_schedules):
+                instructions = []
+                prev_direction = None
+
+                print(f"Robot {robot_id} Instructions:")
+                for i in range(len(rschedule)-1):
+                    src = rschedule[i]['location']
+                    dest = rschedule[i+1]['location']
+                    next_action = rschedule[i+1]['action']
+
+                    # Compute full path between src and dest
+                    path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get('pos'), self.vg.graph.nodes[dest].get('pos'), gr.heuristic)
+                    print(path)
+
+                    if len(path) > 1:
+                        step = 0
+                        while step < len(path)-1:
+                            direction = self.direction_to_turn(path[step], path[step + 1])
+                            if prev_direction is not None and prev_direction != direction:
+                                direction_angles = {
+                                    'N': 0,
+                                    'NE': 45,
+                                    'E': 90,
+                                    'SE': 135,
+                                    'S': 180,
+                                    'SW': 225,
+                                    'W': 270,
+                                    'NW': 315
+                                }
+                                angle = direction_angles[direction] - direction_angles[prev_direction]
+                                if angle > 180:
+                                    angle -= 360
+                                elif angle <= -180:
+                                    angle += 360
+
+                                duration = int(abs(angle) / 45 * TURN_DURATION)
+                                if angle > 0:
+                                    instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
+                                elif angle < 0:
+                                    instructions.append(f"{TURN_LEFT_CMD}:{duration}")
+
+                            i = 1
+                            while (step + i < len(path)-1):
+                                if self.direction_to_turn(path[step + i], path[step + i + 1]) == direction:
+                                    i += 1
+                                else:
+                                    break
+
+                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION * i}")
+                            step += i
+                            prev_direction = direction
+
+                    # After movement
+                    if next_action == "PICKUP":
+                        instructions.append(PICKUP_CMD)
+                    elif next_action == "DROPOFF":
+                        instructions.append(DROPOFF_CMD)
+
+                instructions_str = ">".join(instructions)
+                print(f"Robot {robot_id} Instruction string:")
+                print(instructions_str)
+            return instructions
+
+    def direction_to_turn(self, src, dest):
+        if dest[1] == src[1] and dest[0] < src[0]:
+            return 'N'
+        elif dest[1] == src[1] and dest[0] > src[0]:
+            return 'S'
+        elif dest[0] == src[0] and dest[1] > src[1]:
+            return 'E'
+        elif dest[0] == src[0] and dest[1] < src[1]:
+            return 'W'
+        elif dest[0] > src[0] and dest[1] > src[1]:
+            return 'SE'
+        elif dest[0] > src[0] and dest[1] < src[1]:
+            return 'NE'
+        elif dest[0] < src[0] and dest[1] > src[1]:
+            return 'SW'
+        elif dest[0] < src[0] and dest[1] < src[1]:
+            return 'NW'
+
     def send_instructions(self, instructions):
-        for robot, instruction in instructions.items():
+        for robot, instruction in instructions:
             self.send_instruction(robot, instruction)
         pass
 
     def send_instruction(self, robot, instruction):
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
-        self.bluetooth_client.send(robot, instruction)
+        # self.bluetooth_client.send(robot, instruction)
 
     def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
