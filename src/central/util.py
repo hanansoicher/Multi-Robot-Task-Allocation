@@ -3,6 +3,10 @@ import cv2 as cv
 import numpy as np
 import math
 
+def main():
+    image = cv.imread("img/test_screen-kopi.png")
+    rgb = [66, 56, 47]
+    UtilityFunctions.get_color_range(image, rgb)
 
 class UtilityFunctions:
 
@@ -12,6 +16,35 @@ class UtilityFunctions:
     BLUE=(255,0,0)
     ROBOT_ONE='robot 1'
     ROBOT_TWO='robot 2'
+    ROBOT_ONE_RANGE = ((100, 150, 0), (140, 255, 255))
+    ROBOT_TWO_RANGE = ((4, 53, 50), (24, 93, 86))
+    TEXT_DISTANCE = 65
+    @staticmethod
+    def get_color_range(image, rgb):
+
+        # Convert RGB to HSV using OpenCV
+        rgb_color = np.uint8([[rgb]])  # Input color in RGB
+        hsv_color = cv.cvtColor(rgb_color, cv.COLOR_RGB2HSV)
+        hue, sat, val = hsv_color[0][0]
+
+        # Define the color range (you can tweak the ± values as needed)
+        lower_bound = np.array([hue - 10, max(50, sat - 20), max(50, val - 20)], dtype=np.uint8)
+        upper_bound = np.array([hue + 10, min(255, sat + 20), min(255, val + 20)], dtype=np.uint8)
+
+        print("Lower HSV Bound:", lower_bound)
+        print("Upper HSV Bound:", upper_bound)
+
+        # Example of applying this to a mask
+        hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)  # Convert image to HSV
+        mask = cv.inRange(hsv_image, lower_bound, upper_bound)  # Create a mask
+
+        # Optional: Visualize the result
+        result = cv.bitwise_and(image, image, mask=mask)
+        cv.imshow("Original Image", image)
+        cv.imshow("Mask", mask)
+        cv.imshow("Result", result)
+        cv.waitKey(0)
+        cv.destroyAllWindows()
 
     @staticmethod
     def find_corners_feed(cap):
@@ -191,13 +224,12 @@ class UtilityFunctions:
 
             centroids = []
             for contour in contours:
-                M = cv.moments(contour)
-                if M["m00"] != 0:  # Avoid division by zero
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    area = cv.contourArea(contour)  # Calculate the area of the contour
-                    centroids.append((cx, cy, area))
-
+                try:
+                    cx, cy, area = UtilityFunctions.find_center_of_contour(contour)
+                    if cx is not None:
+                        centroids.append((cx, cy, area))
+                except:
+                    continue
             centroids = sorted(centroids, key=lambda x: x[2], reverse=True)
             best_centroid = centroids[0] if len(centroids) > 1 else None
             if best_centroid is None:
@@ -206,7 +238,16 @@ class UtilityFunctions:
             points[f"{color_name}_2"] = centroids[1][:2]
         return points   
     
-    
+    @staticmethod
+    def find_center_of_contour(contour):
+        M = cv.moments(contour)
+        if M["m00"] != 0:  # Avoid division by zero
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            area = cv.contourArea(contour)  # Calculate the area of the contour
+
+            return cx, cy, area
+        return None
     @staticmethod
     def adjust_hsv_range(hsv, lower, upper):
         v_mean = np.mean(hsv[:, :, 2])  # Compute the mean brightness (value channel)
@@ -262,3 +303,6 @@ class UtilityFunctions:
             total = t      
 
         return total    
+
+if __name__ == '__main__':
+    main()

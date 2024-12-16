@@ -56,11 +56,11 @@ async def driver_code(video_input, robots):
                 frame = central_node.vg.frame_queue.get()
                 pos1 = await central_node.vg.get_robot_positions(uf.ROBOT_ONE)
                 pos2 = await central_node.vg.get_robot_positions(uf.ROBOT_TWO)
-                instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+                instructions = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
                 if pos1 is not None and pos2 is not None:     
-                    instructions_1 = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
-                central_node.vg.display_robot_instructions(frame, instructions_1, robots)
+                    instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
+                central_node.vg.display_robot_instructions(frame, instructions)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
@@ -74,11 +74,20 @@ async def driver_code(video_input, robots):
                 #     print("Instructions: ", instructions)
                 #     # central_node.send_instructions(instructions)
 
-            if cv.waitKey(1) == ord('r'):
-                central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
-
             if cv.waitKey(1) == ord('t'):
-                central_node.vg.overlay_update_frame_interval = (central_node.vg.overlay_update_frame_interval % 20) + 2
+                central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
+
+            if cv.waitKey(1) == ord('g'):
+                central_node.vg.display_grid = not central_node.vg.display_grid
+
+            if cv.waitKey(1) == ord('o'):
+                central_node.vg.display_obstacles = not central_node.vg.display_obstacles
+            
+            if cv.waitKey(1) == ord('p'):
+                central_node.vg.display_paths = not central_node.vg.display_paths
+
+            if cv.waitKey(1) == ord('h'):
+                central_node.vg.display_HUD = not central_node.vg.display_HUD
 
     finally:
         central_node.tear_down()
