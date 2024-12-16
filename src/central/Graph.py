@@ -13,8 +13,6 @@ class Graph(nx.Graph):
     INF = float('inf')
     EDGE_WEIGHT = "distance_in_cm"
 
-
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -119,6 +117,49 @@ class Graph(nx.Graph):
         else:
             return None
         
+    def adjust_distance_based_on_correction_pixel(graph, pixel_pos_a, pixel_pos_b, conversion):
+        # Extract real-world coordinate
+        pos_a_x, pos_a_y = pixel_pos_a
+        pos_b_x, pos_b_y = pixel_pos_b
+        
+        # Calculate pixel distance
+        pixel_distance = uf.euclidean_distance((pos_a_x, pos_a_y), (pos_b_x, pos_b_y))
+        
+        # Determine the direction based on threshold
+        direction = Graph.direction_pixel((pos_a_x, pos_a_y), (pos_b_x, pos_b_y), pixel_distance/3)
+        
+        # Adjust the weight based on the determined direction
+        if direction == Graph.DIAGONAL:
+            return pixel_distance * conversion[2]
+        elif direction == Graph.HORIZONTAL:
+            return pixel_distance * conversion[0]
+        elif direction == Graph.VERTICAL:
+            return pixel_distance * conversion[1]
+        
+        # Default case if no valid direction
+        return float('inf')
+
+
+    @staticmethod
+    def direction_pixel(node_a_coords, node_b_coords, threshold):
+        x1, y1 = node_a_coords
+        x2, y2 = node_b_coords
+        
+        # Calculate the differences in x and y directions
+        delta_x = abs(x2 - x1)
+        delta_y = abs(y2 - y1)
+        
+        # Determine the movement direction based on the threshold
+        if delta_x > threshold and delta_y > threshold:
+            return Graph.DIAGONAL
+        elif delta_x > threshold and delta_y <= threshold:
+            return Graph.HORIZONTAL
+        elif delta_y > threshold and delta_x <= threshold:
+            return Graph.VERTICAL
+        else:
+            # If the movement is too small in all directions
+            return None
+
 
     def update_graph_based_on_obstacle(graph, contour, proximity_threshold):
         for node in graph.nodes:
@@ -138,7 +179,6 @@ class Graph(nx.Graph):
         subgraph = graph.subgraph(non_overlapping_nodes)
         for node in subgraph.nodes:
             graph.nodes[node][Graph.NEAR_OBSTACLE] = False
-
 
     def find_nodes_within_bounding_box(graph, min_x, max_x, min_y, max_y, proximity_threshold):
         overlapping_nodes = set()
@@ -202,7 +242,7 @@ class Graph(nx.Graph):
             pixel_distances.append(pixel_dist)
         total = uf.kahan_sum(total_weight)
         total_pixel_dist = uf.kahan_sum(pixel_distances)
-        print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
+        # print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
 
         return total
 
@@ -236,7 +276,7 @@ class Graph(nx.Graph):
             pos_b = graph.nodes[node_b][Graph.PIXEL_POS]
 
             cv.line(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
-                    (int(pos_b[0]), int(pos_b[1])), uf.BLUE, 2)  
+                    (int(pos_b[0]), int(pos_b[1])), uf.GREEN, 2)  
 
             cv.circle(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
                       5, uf.YELLOW, -1)  # Yellow circle

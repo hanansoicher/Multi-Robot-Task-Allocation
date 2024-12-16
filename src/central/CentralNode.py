@@ -7,20 +7,30 @@ from Graph import Graph as gr
 import sys  
 import os 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from SMrTa.MRTASolver import MRTASolver
-from SMrTa.MRTASolver.objects import Robot, Task
+from SMrTa.MRTASolver import MRTASolver, Robot
+from SMrTa.MRTASolver.objects import Task
+from client import Robot as IndividualNode
+import json 
+from dotenv import load_dotenv
+import requests
+
+load_dotenv()
 
 def main():
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
     web_cam_distance = "img/video/center_test.mov"
-    robots = {
-        'robot 1': {'START': (0,0)} #,'R1:XX'}, # start, MAC address
-        # 'robot 2': 'R2:XX:', 
-    }
+
+    # Read robots
+    with open('devices.json', 'r') as f:
+        robots = json.load(f)['devices']
+
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-    video_feed = [web_cam_distance]
+
+    e = os.environ["VIDEO_FEED"]
+    print("Searching for env", e)
+    video_feed = [int(os.getenv('VIDEO_FEED', 0))]
     for video_input in video_feed:
         driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
@@ -29,32 +39,46 @@ def driver_code(video_input, robots):
     solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
+    central_node.init()
+
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
 
-    
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-                frame = central_node.vg.overlay_text(frame, f"blocksize in cm: {central_node.vg.block_size_cm}", (50,50))
-                frame = central_node.vg.overlay_text(frame, f"Update rate: {central_node.vg.overlay_update_frame_interval}", (100,100))
+
+                pos1, pos2 = None, None
+                if central_node.can_calibrate(): 
+                    central_node.calibrate()
+                    
+                if len(central_node.vg.tracked_objects) >= 1:
+                    pos1 = central_node.vg.get_robot_positions(uf.ROBOT_ONE)
+
+                    # Once we have identified at least one robot, try to calibrate
+                if len(central_node.vg.tracked_objects) >= 2:
+                    pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
+                instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+
+                if pos1 is not None and pos2 is not None:     
+                    instructions_1 = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
+                central_node.vg.display_robot_instructions(frame, instructions_1, robots)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
-            if time.time() - last_time > 2 and robots['robot 1']['START'] != (0,0):  
+            if time.time() - last_time > 2:  
                 last_time = time.time()
-                print(robots['robot 1']['START'])
-                if not solver_ran:
-                    solution = central_node.run_solver(robots)
-                    solver_ran = True
-                    schedules = central_node.convert_solution_to_schedules(solution)
-                    instructions = central_node.generate_point_to_point_movement_instructions(schedules)
-                    print("Instructions: ", instructions)
-                    # central_node.send_instructions(instructions)
+                # if not solver_ran:
+                #     solution = central_node.run_solver(robots)
+                #     solver_ran = True
+                #     schedules = central_node.convert_solution_to_schedules(solution)
+                #     instructions = central_node.generate_point_to_point_movement_instructions(schedules)
+                #     print("Instructions: ", instructions)
+                #     # central_node.send_instructions(instructions)
 
             if cv.waitKey(1) == ord('r'):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
@@ -72,14 +96,53 @@ class CentralNode:
     HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
     LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
-        self.bluetooth_client = self.init_bluetooth_module()
-        self.robots = self.init_robots(robots) # ensure connection is established
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
+        self.robot_data = robots
+        self.camera_input = camera_input
+        self.has_already_calibrated = False
+
+    def init(self):
+        # TEMPORARY, REMOVE LATER
+        self.robots = self.init_robots(self.robot_data) # ensure connection is established
+
+    def can_calibrate(self):
+        if self.has_already_calibrated:
+            return False 
+        
+        for rob in self.robots:
+            if rob.device_name not in self.vg.tracked_objects:
+                print("CANT CALIBRATE!!! DIDNT FIND", rob.device_name)
+                return False
+        
+        if not self.has_already_calibrated:
+            self.has_already_calibrated = True
+            return True 
+
+        return False
+            
+        
+
+    def calibrate(self):
+        print("CALIBRATING!!!")
         self.robot_calibration_and_sync()
 
-    def init_robots(self, robots):
-        print("initialized robots: ",robots)
-        pass
+
+    def init_robots(self, robots, reconnect_time = 2):
+        all_robots = []
+        for r in robots:
+            new_robot = IndividualNode(
+                r["address"],
+                r['name'],
+                r['write_uuid'],
+                reconnect_time
+            ) 
+
+            new_robot.init()
+            # self.vg.tracked_objects[r['name']] = new_robot
+
+            all_robots.append(new_robot)
+
+        return all_robots
 
     def init_bluetooth_module(self):
         pass
@@ -92,12 +155,12 @@ class CentralNode:
         print("graph: ", graph)
         print("paths: ", paths)
         try:
-            gr.print_path_weights(graph, paths['robot 2'])
+            gr.print_path_weights(graph, paths[uf.ROBOT_TWO])
         except Exception as e:
             print(e)
 
         agents = [
-            Robot(id=0, start=robots['robot 2']['START']),
+            # Robot(id=0, start=robots[uf.ROBOT_TWO]['START']),
             # Robot(id=1, start=(1,9)),
         ]
         tasks = [
@@ -319,21 +382,28 @@ class CentralNode:
 
     def send_instruction(self, robot, instruction, duration=None):
         if instruction == 'F':
-            self.send_command(duration)
+            robot.move(1)
         elif instruction == 'L':
-            self.motor_controller.turn_left(duration)
+            robot.turn(-90)
         elif instruction == 'R':
-            self.motor_controller.turn_right(duration)
-        elif instruction == 'P' or command == 'D':
-            self.motor_controller.spin()
+            robot.turn(-90)
+        # elif instruction == 'P' or  instruction == 'D':
+        #     self.motor_controller.spin()
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
-        # self.bluetooth_client.send(robot, instruction)
 
     def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
         # move forward, orientation etc
-        pass
+        for robot in self.robots:
+            print("Calibrating", robot.device_name)
+            
+            # Move the robot forward 1 
+            initial_pos = self.vg.get_robot_positions(robot.device_name)
+            robot.move(1)
+            final_pos = self.vg.get_robot_positions(robot.device_name)
+
+            print("Initial and final pos", initial_pos, final_pos)
 
     def tear_down(self):
         # Stop the thread and release resources 
@@ -344,4 +414,5 @@ class CentralNode:
         print("Tear down done")
 
 if __name__ == "__main__":
+    # cap = cv.VideoCapture(0)
     main()

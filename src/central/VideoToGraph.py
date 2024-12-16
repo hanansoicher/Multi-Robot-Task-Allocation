@@ -5,6 +5,8 @@ import threading
 import queue
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
+import asyncio
+
 
 def main():
     video = "img/video/test_red_close.mov"
@@ -70,44 +72,66 @@ class VideoToGraph:
             print("Thread couldn't be joined")
         cv.destroyAllWindows()
 
+    def get_robot_positions(self, robot):
+        pos = self.tracked_objects[robot]
+        center = uf.find_center_of_rectangle(pos)
+        return center
+
     # Create and update graph from the video input
     def start_environment(self):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
+
+
+
         while self.running:
+
             # Capture frame-by-frame
             ret, frame = self.cap.read()
+
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
                 self.running = False
                 break
 
+            if self.corners == {}:
+                self.corners, self.H = uf.find_corners_feed(self.cap)
+
+            # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
+                
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             if update:
-                graph = self.convert_image_to_graph(frame, refresh_graph)
+                self.convert_image_to_graph(frame, refresh_graph)
                 self.detect_objects(frame)
                 refresh_graph = False
 
-            overlay_image = self.draw_overlay(frame, graph)
+            overlay_image = self.draw_overlay(frame, self.graph)
             self.draw_objects_overlay(overlay_image)
             try:
                 no_robots, overlay_image = self.no_robots(overlay_image)
                 if no_robots:
                     pass
                 else:
-                    center_1 = uf.find_center_of_rectangle(self.tracked_objects['robot 1'])
-                    self.robots['robot 1']['START'] = gr.find_nearest_node(self.graph, center_1)
-                    paths = self.find_paths(self.robot_goals)
-                    for robot_path in paths.keys():
-                        if robot_path:
-                            path = paths[robot_path]
-                            overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
-                            self.paths[robot_path] = path
+                    robot_1 = uf.find_center_of_rectangle(self.tracked_objects[uf.ROBOT_ONE])
+                    robot_2 = gr.find_nearest_node(self.graph, uf.find_center_of_rectangle(self.tracked_objects[uf.ROBOT_TWO]))
+                    path = gr.a_star_from_pixel_pos(self.graph, robot_1, robot_2)
+                    if path is not None:
+                        overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
+                        gr.print_path_weights(self.graph, path)
+                    
+                    length = gr.safe_astar_path(self.graph, (0,0), (self.graph_x_nodes-1,0), gr.heuristic)
+                    height = gr.safe_astar_path(self.graph, (0,0), (0, self.graph_y_nodes-1), gr.heuristic)
+                    diagonal = gr.safe_astar_path(self.graph, (0,0), (self.graph_x_nodes - 1 , self.graph_y_nodes-1), gr.heuristic)
+
+                    print("Length, height, diagonal")
+                    gr.print_path_weights(self.graph, length)
+                    gr.print_path_weights(self.graph, height)
+                    gr.print_path_weights(self.graph, diagonal)
             except:
                 if update:
-                    print("Couldn't find path")
+                    pass
 
             # Display the (frame + overlay)
             if not self.frame_queue.full():
@@ -115,31 +139,31 @@ class VideoToGraph:
             frame_count += 1
 
     def no_robots(self, overlay_image):
-        no_robots = not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2')
+        no_robots = not self.tracked_objects.__contains__(uf.ROBOT_ONE) and not self.tracked_objects.__contains__(uf.ROBOT_TWO)
         if no_robots:
             top_left = self.corners[uf.TOP_LEFT]
             bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
             path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
-            if path:
+            if path is not None:
                 overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
-                self.paths['robot 1'] = path
+                self.paths[uf.ROBOT_ONE] = path
                 gr.print_path_weights(self.graph, path)
         return no_robots, overlay_image
     
     def convert_image_to_graph(self, image, refresh_graph):
         if refresh_graph:
-            corners = uf.find_corners(image)
-            if self.corners != corners:
-                self.corners = corners
-                self.set_dimensions(corners)
-                self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
-                gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
-                self.refresh_matrix(corners)
-                gr.set_node_positions(self.graph, self.matrix)
-                self.set_robot_goals({
-                    'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
-                    'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
-                    })
+            # corners = uf.find_corners(image)
+            # if self.corners != corners:
+            #     self.corners = corners
+            self.set_dimensions(self.corners)
+            self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
+            gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
+            self.refresh_matrix(self.corners)
+            gr.set_node_positions(self.graph, self.matrix)
+            self.set_robot_goals({
+                'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
+                'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
+                })
             self.detect_static_obstacles(image, self.graph)
             self.detect_objects(image)
             self.compute_pixel_conversion()
@@ -155,11 +179,12 @@ class VideoToGraph:
     def draw_overlay(self, image, graph):
         overlay_image = gr.draw_nodes_overlay(graph, image)
         overlay_image = gr.draw_edges_overlay(graph, overlay_image)
-        overlay_image = self.draw_corners_overlay(overlay_image)
+        # overlay_image = self.draw_corners_overlay(overlay_image)
         return overlay_image
 
     def draw_objects_overlay(self, overlay_image):
         for key in self.tracked_objects.keys():
+            print(self.tracked_objects, key)
             pts = self.tracked_objects[key].astype(int)
             cv.polylines(overlay_image, [pts], isClosed=True, color=uf.GREEN, thickness=2)
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
@@ -238,6 +263,7 @@ class VideoToGraph:
         
         if retval:
             for i, qr_code_info in enumerate(decoded_infos):
+                print("Received QR Code data of ", qr_code_info)
                 self.update_position(points[i], qr_code_info)
 
         for key in self.tracked_objects.keys():
@@ -265,11 +291,13 @@ class VideoToGraph:
         robot = robot if robot else self.get_nearest_object(position)
         if robot:
             try:
+                print("update_position", position, 'robot', robot)
                 previous_position = self.tracked_objects[robot]
                 same_position = np.array_equal(position, previous_position)
                 if not same_position:
                     self.tracked_objects[robot] = position
-            except:
+            except Exception as e:
+                print("EXCEPTION", e)
                 self.tracked_objects[robot] = position
 
 
@@ -287,9 +315,24 @@ class VideoToGraph:
 
         return closest_id
     
-    def overlay_text(self, image, text, position, color=(0,0,0)):
-        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, 1.3, color, 3)
+    def display_robot_instructions(self, overlay_image, instructions, robots):
+        pos_x, pos_y = (self.corners[uf.TOP_LEFT][0]) // 10, (self.square_pixel_height // 20) * 9
+        for (robot, instruction) in instructions:
+            overlay_image = self.outline_text(overlay_image, f"{robot}: {instruction}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
+            pos_y += 65  
+
+    def overlay_text(self, image, text, position, color=(0,0,0), scale=1.3):
+        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, scale, (color), thickness=2, lineType=cv.LINE_AA)
         return image
+    
+    def outline_text(self, image, text, position, color=(255,255,255), scale=1.3, outline=2):
+        font = cv.FONT_HERSHEY_SIMPLEX
+        color_outline = (0, 0, 0)  # Black outline
+
+        cv.putText(image, text, position, font, scale, color_outline, outline, lineType=cv.LINE_AA)
+        cv.putText(image, text, position, font, scale, color, outline-2, lineType=cv.LINE_AA)
+        return image
+
 
 if __name__ == "__main__":
     main()
