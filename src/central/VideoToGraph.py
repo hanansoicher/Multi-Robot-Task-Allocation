@@ -117,17 +117,24 @@ class VideoToGraph:
                 if no_robots:
                     pass
                 else:
-                    center_1 = uf.find_center_of_rectangle(self.tracked_objects['robot 1'])
-                    self.robots['robot 1']['START'] = gr.find_nearest_node(self.graph, center_1)
-                    paths = self.find_paths(self.robot_goals)
-                    for robot_path in paths.keys():
-                        if robot_path:
-                            path = paths[robot_path]
-                            overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
-                            self.paths[robot_path] = path
+                    robot_1 = uf.find_center_of_rectangle(self.tracked_objects[uf.ROBOT_ONE])
+                    robot_2 = gr.find_nearest_node(self.graph, uf.find_center_of_rectangle(self.tracked_objects[uf.ROBOT_TWO]))
+                    path = gr.a_star_from_pixel_pos(self.graph, robot_1, robot_2)
+                    if path is not None:
+                        overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
+                        gr.print_path_weights(self.graph, path)
+                    
+                    length = gr.safe_astar_path(self.graph, (0,0), (self.graph_x_nodes-1,0), gr.heuristic)
+                    height = gr.safe_astar_path(self.graph, (0,0), (0, self.graph_y_nodes-1), gr.heuristic)
+                    diagonal = gr.safe_astar_path(self.graph, (0,0), (self.graph_x_nodes - 1 , self.graph_y_nodes-1), gr.heuristic)
+
+                    print("Length, height, diagonal")
+                    gr.print_path_weights(self.graph, length)
+                    gr.print_path_weights(self.graph, height)
+                    gr.print_path_weights(self.graph, diagonal)
             except:
                 if update:
-                    print("Couldn't find path")
+                    pass
 
             # Display the (frame + overlay)
             if not self.frame_queue.full():
@@ -135,14 +142,14 @@ class VideoToGraph:
             frame_count += 1
 
     def no_robots(self, overlay_image):
-        no_robots = not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2')
+        no_robots = not self.tracked_objects.__contains__(uf.ROBOT_ONE) and not self.tracked_objects.__contains__(uf.ROBOT_TWO)
         if no_robots:
             top_left = self.corners[uf.TOP_LEFT]
             bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
             path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
             if path is not None:
                 overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
-                self.paths['robot 1'] = path
+                self.paths[uf.ROBOT_ONE] = path
                 gr.print_path_weights(self.graph, path)
         return no_robots, overlay_image
     

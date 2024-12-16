@@ -56,11 +56,10 @@ async def driver_code(video_input, robots):
                 frame = central_node.vg.frame_queue.get()
                 pos1 = await central_node.vg.get_robot_positions(uf.ROBOT_ONE)
                 pos2 = await central_node.vg.get_robot_positions(uf.ROBOT_TWO)
-                instructions_1 = [('robot 1', [(0,0)]), ('robot 2', [(1,1)])]
+                instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
                 if pos1 is not None and pos2 is not None:     
-                    print(pos1[0], pos1[1])
-                    instructions_1 = [('robot 1', (float(pos1[0]), float(pos1[1]))), ('robot 2', (float(pos2[0]), float(pos2[1])))]
+                    instructions_1 = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
                 central_node.vg.display_robot_instructions(frame, instructions_1, robots)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
@@ -126,12 +125,12 @@ class CentralNode:
         print("graph: ", graph)
         print("paths: ", paths)
         try:
-            gr.print_path_weights(graph, paths['robot 2'])
+            gr.print_path_weights(graph, paths[uf.ROBOT_TWO])
         except Exception as e:
             print(e)
 
         agents = [
-            # Robot(id=0, start=robots['robot 2']['START']),
+            # Robot(id=0, start=robots[uf.ROBOT_TWO]['START']),
             # Robot(id=1, start=(1,9)),
         ]
         tasks = [
