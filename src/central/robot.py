@@ -2,6 +2,7 @@ import asyncio
 import time
 import json
 from bleak import BleakClient, BleakScanner
+import traceback
 
 
 class Robot:
@@ -22,7 +23,7 @@ class Robot:
         """Asynchronous initialization."""
         print("Init")
         self.client = await self._get_device_address_async(self.device_address, self.device_name)
-        await self.reconnect_async(self.reconnect_time, retries=10)
+        await self.reconnect_async(self.reconnect_time, retries=3)
         await self.reset_angle_data()
         await self.reset_distance_data()
         print("Init complete")
@@ -50,6 +51,8 @@ class Robot:
             else:
                 print("Client is None. Cannot connect.")
         except Exception as e:
+            # traceback.print_exc()
+            
             print(f"Failed to connect to {self.device_address}: {e}")
             return False
 
@@ -62,6 +65,8 @@ class Robot:
                 print(f"Disconnected from {self.device_address}")
             return True
         except Exception as e:
+            # traceback.print_exc()
+
             print(f"Failed to disconnect from {self.device_address}: {e}")
             return False
 

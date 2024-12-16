@@ -145,7 +145,7 @@ def hover_event(event, x, y, flags, param):
         cv2.putText(hover_frame, f"X: {coord_x:.2f} cm, Y: {coord_y:.2f} cm", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         cv2.imshow("Mapped Video Feed", hover_frame)
-        
+
 def filter_white(img):
     hsv_frame = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     lower_white = np.array([0, 0, 200])

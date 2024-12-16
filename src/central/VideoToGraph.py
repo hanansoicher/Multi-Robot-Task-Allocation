@@ -88,8 +88,10 @@ class VideoToGraph:
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
         while self.running:
+
             # Capture frame-by-frame
             ret, frame = self.cap.read()
+
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
@@ -97,8 +99,11 @@ class VideoToGraph:
                 break
 
             if self.corners == {}:
-                self.corners = uf.find_corners_feed(self.cap)
-            refresh_graph = True if frame_count % self.overlay_update_frame_interval * 3 == 0 else False
+                self.corners, self.H = uf.find_corners_feed(self.cap)
+
+            # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
+                
+            refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             if update:
                 self.convert_image_to_graph(frame, refresh_graph)
@@ -143,18 +148,18 @@ class VideoToGraph:
     
     def convert_image_to_graph(self, image, refresh_graph):
         if refresh_graph:
-            corners = uf.find_corners(image)
-            if self.corners != corners:
-                self.corners = corners
-                self.set_dimensions(corners)
-                self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
-                gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
-                self.refresh_matrix(corners)
-                gr.set_node_positions(self.graph, self.matrix)
-                self.set_robot_goals({
-                    'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
-                    'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
-                    })
+            # corners = uf.find_corners(image)
+            # if self.corners != corners:
+            #     self.corners = corners
+            self.set_dimensions(self.corners)
+            self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
+            gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
+            self.refresh_matrix(self.corners)
+            gr.set_node_positions(self.graph, self.matrix)
+            self.set_robot_goals({
+                'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
+                'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
+                })
             self.detect_static_obstacles(image, self.graph)
             self.detect_objects(image)
             self.compute_pixel_conversion()

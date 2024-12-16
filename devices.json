@@ -4,11 +4,6 @@
             "name" : "device1",
             "address" : "38:AB:41:F8:B1:63",
             "write_uuid" : "0000ffe1-0000-1000-8000-00805f9b34fb"
-        },
-        {
-            "name" : "device0",
-            "address" : "B0:D2:78:32:EA:6C",
-            "write_uuid" : "0000ffe1-0000-1000-8000-00805f9b34fb"
         }
     ]
 }

@@ -14,6 +14,58 @@ class UtilityFunctions:
     ROBOT_TWO='robot 2'
 
     @staticmethod
+    def find_corners_feed(cap):
+        
+        points = []
+        def click_event(event, x, y, flags, param):
+
+            if event == cv.EVENT_LBUTTONDOWN:
+                points.append((x, y))
+                print(f"Point {len(points)}: {x}, {y}")
+                cv.circle(temp_frame, (x, y), 5, (0, 0, 255), -1)
+                cv.imshow("Video Feed", temp_frame)
+
+        cv.namedWindow("Video Feed")
+        cv.setMouseCallback("Video Feed", click_event)
+        while len(points) < 4:
+            ret, frame = cap.read()
+            if not ret:
+                print("Failed to grab frame")
+                break
+            temp_frame = frame.copy()
+            cv.imshow("Video Feed", frame)
+            if cv.waitKey(1) & 0xFF == ord('q'):
+                cap.release()
+                cv.destroyAllWindows()
+                exit()
+        
+        rectangles = UtilityFunctions.make_rectangle(points)
+        corners = {
+            UtilityFunctions.TOP_LEFT: rectangles[0], 
+            UtilityFunctions.TOP_RIGHT: rectangles[1],
+            UtilityFunctions.BOTTOM_LEFT: rectangles[2],
+            UtilityFunctions.BOTTOM_RIGHT: rectangles[3],
+        }
+
+        points = sorted(points, key=lambda p: (p[1], p[0]))
+        if points[0][0] > points[1][0]:
+            points[0], points[1] = points[1], points[0]
+        if points[2][0] > points[3][0]:
+            points[2], points[3] = points[3], points[2]
+            
+        src_points = np.array(points, dtype=np.float32)
+        dst_points = np.array([
+            [0, 0],
+            [frame.shape[1], 0],
+            [0, frame.shape[0]],
+            [frame.shape[1], frame.shape[0]]
+        ], dtype=np.float32)
+
+        H, _ = cv.findHomography(src_points, dst_points)
+        return corners, H
+    
+    
+    @staticmethod
     def euclidean_distance(point1, point2):
             return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1]-point1[1]) ** 2)    
     
@@ -70,6 +122,17 @@ class UtilityFunctions:
     GREEN_RANGE = ((35, 50, 50), (85, 255, 255))
     RED_RANGE_1 = ((0, 70, 50), (10, 255, 255))
     RED_RANGE_2 = ((170, 70, 50), (180, 255, 255))
+
+    tracking = False 
+    def click_event(event, x, y, flags, param):
+        global points, polygon, tracking, polygon_complete
+
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if not tracking:
+                points.append((x, y))
+                print(f"Point {len(points)}: {x}, {y}")
+                cv2.circle(temp_frame, (x, y), 5, (0, 0, 255), -1)
+                cv2.imshow("Video Feed", temp_frame)
 
     @staticmethod
     def find_corners(image):
