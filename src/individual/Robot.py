@@ -4,12 +4,13 @@ import json
 from bleak import BleakClient, BleakScanner
 
 
-class Robot:
-    def __init__(self, device_address: str, device_name: str, characteristic_uuid: str, reconnect_time=2):
+class RobotConnection:
+    def __init__(self, device_address: str, device_name: str, characteristic_uuid: str, start_loc, reconnect_time=2):
         """Initialize the Robot class with the Bluetooth device address."""
         self.device_address = device_address
         self.characteristic_uuid = characteristic_uuid
         self.device_name = device_name
+        self.start = start_loc
         self.client = None
         self.speed = 1000
         self.waiting = False
@@ -206,6 +207,11 @@ class Robot:
         command = f"TURN+{angle_in_degrees}"
         await self._send_command(command)
 
+    async def wait(self, seconds: float):
+        """Send a wait command with a specified number of seconds."""
+        command = f"WAIT+{seconds}"
+        await self._send_command(command)
+
     async def set_speed(self, speed: int):
         command = f"SPEED+{speed}"
         await self._send_command(command)
@@ -221,7 +227,7 @@ async def main():
         dct = json.load(f)
 
     d = dct["devices"][0]
-    robot = Robot(d["address"], None, d["write_uuid"])
+    robot = RobotConnection(d["address"], None, d["write_uuid"])
     await robot.init()
 
     print("\n\nPHASE 1 COMPLETE\n\n")

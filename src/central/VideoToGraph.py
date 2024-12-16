@@ -15,20 +15,17 @@ def main():
 class VideoToGraph:
 
     #initialize
-    def __init__(self, height, length, video_file, robots, metric = True):
+    def __init__(self, width, length, video_file, metric = True):
 
         # video feed
         self.cap = self.initialize_camera(video_file)
 
         # Graph setup
-        self.square_length_cm = length if metric else length * 2.54
-        self.square_height_cm = height if metric else height * 2.54
-        self.square_pixel_length = 0
-        self.square_pixel_height = 0
-        self.graph_x_nodes = 0
-        self.graph_y_nodes = 0
+        self.maze_height = width if metric else width * 2.54
+        self.maze_length = length if metric else length * 2.54
+        self.grid_height = 0
+        self.grid_width = 0
         self.block_size_cm = 3.5
-        self.pixel_conversion = []
         self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
@@ -41,7 +38,6 @@ class VideoToGraph:
         self.qcd = None
         self.overlapping_nodes = set()
         self.tracked_objects = {}
-        self.robots = robots
 
         # relay processed video via thread to avoid creating a blocking call
         self.frame_queue = queue.Queue(maxsize=1)
@@ -97,8 +93,6 @@ class VideoToGraph:
                 if no_robots:
                     pass
                 else:
-                    center_1 = uf.find_center_of_rectangle(self.tracked_objects['robot 1'])
-                    self.robots['robot 1']['START'] = gr.find_nearest_node(self.graph, center_1)
                     paths = self.find_paths(self.robot_goals)
                     for robot_path in paths.keys():
                         if robot_path:
@@ -123,7 +117,6 @@ class VideoToGraph:
             if path:
                 overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
                 self.paths['robot 1'] = path
-                gr.print_path_weights(self.graph, path)
         return no_robots, overlay_image
     
     def convert_image_to_graph(self, image, refresh_graph):
@@ -132,24 +125,22 @@ class VideoToGraph:
             if self.corners != corners:
                 self.corners = corners
                 self.set_dimensions(corners)
-                self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
-                gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
+                self.graph = nx.grid_2d_graph(self.grid_width, self.grid_height)
+                gr.add_diagonal_edges(self.grid_width, self.grid_height, self.graph)
                 self.refresh_matrix(corners)
                 gr.set_node_positions(self.graph, self.matrix)
                 self.set_robot_goals({
-                    'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
-                    'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
+                    'robot 1': (self.grid_width - 1, self.grid_height - 4),
+                    'robot 2': (self.grid_width - 3, self.grid_height - 12),          
                     })
             self.detect_static_obstacles(image, self.graph)
             self.detect_objects(image)
-            self.compute_pixel_conversion()
-
-            gr.adjust_graph_weights(self.graph, self.pixel_conversion)        
+            gr.adjust_graph_weights(self.graph)        
 
         return self.graph
     
     def refresh_matrix(self, corners):
-        matrix = uf.compute_affine_transformation(corners, self.graph_x_nodes, self.graph_y_nodes)
+        matrix = uf.compute_affine_transformation(corners, self.grid_width, self.grid_height)
         self.matrix = matrix
 
     def draw_overlay(self, image, graph):
@@ -192,26 +183,17 @@ class VideoToGraph:
     def set_dimensions(self, corners):
         try:
             # Compute grid dimensions based on the block size and image size
-            self.square_pixel_length = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
-            self.square_pixel_height = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
+            image_width_px = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
+            image_height_px = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
 
-            pixel_block_height_px  = (self.block_size_cm / self.square_height_cm) * self.square_pixel_height
-            pixel_block_length_px = (self.block_size_cm / self.square_length_cm) * self.square_pixel_length
+            pixel_block_height_px  = (self.block_size_cm / self.maze_height) * image_height_px
+            pixel_block_width_px = (self.block_size_cm / self.maze_length) * image_width_px
 
-            self.graph_x_nodes = int(self.square_pixel_length / pixel_block_length_px)
-            self.graph_y_nodes = int(self.square_pixel_height / pixel_block_height_px)
+            self.grid_width = int(image_width_px / pixel_block_width_px)
+            self.grid_height = int(image_height_px / pixel_block_height_px)     
         except:
             print("Couldn't set the dimensions")    
-
-    def compute_pixel_conversion(self):
-        try:
-            self.pixel_conversion.append(self.square_length_cm / self.square_pixel_length)
-            self.pixel_conversion.append(self.square_height_cm / self.square_pixel_height)
-            self.pixel_conversion.append((self.square_length_cm**2 + self.square_height_cm**2) ** 0.5 / (self.square_pixel_length**2 + self.square_pixel_height**2) ** 0.5)
-        except Exception as e:
-            print(e)
-            print("Couldn't compute pixel dimensions")
-
+    
     def detect_static_obstacles(self, image, graph, proximity_threshold=60):
         overlay_image = image.copy()
         hsv_image = cv.cvtColor(overlay_image, cv.COLOR_BGR2HSV)
@@ -272,7 +254,6 @@ class VideoToGraph:
             except:
                 self.tracked_objects[robot] = position
 
-
     def get_nearest_object(self, points, threshold=400):
         closest_id = None
         min_distance = gr.INF
@@ -287,8 +268,8 @@ class VideoToGraph:
 
         return closest_id
     
-    def overlay_text(self, image, text, position, color=(0,0,0)):
-        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, 1.3, color, 3)
+    def overlay_text(self, image, text, position):
+        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
         return image
 
 if __name__ == "__main__":

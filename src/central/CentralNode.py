@@ -1,14 +1,24 @@
+
+
+import sys  
+import os 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
+
 import numpy as np
 import VideoToGraph as v2g
 import time
 import cv2 as cv
+from src.individual.Robot import RobotConnection
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
-import sys  
-import os 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
 from SMrTa.MRTASolver import MRTASolver
 from SMrTa.MRTASolver.objects import Robot, Task
+
+MOVE_DURATION_MS = 13  # 13 ms to move 1 cm
+TURN_DURATION_MS = 50  # 50 ms to turn 45 degrees
+DIAGONAL_MULTIPLIER = 1.414  # sqrt(2) for diagonal movement
 
 def main():
     web_cam_close = "img/video/webcam_red_close.mov"
@@ -16,11 +26,21 @@ def main():
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
     web_cam_distance = "img/video/center_test.mov"
     robots = {
-        'robot 1': {'START': (0,0)} #,'R1:XX'}, # start, MAC address
-        # 'robot 2': 'R2:XX:', 
+        "robot 1": {
+            "name": "robot 1",
+            "address": "XX:XX:XX:XX:XX:XX",
+            "write_uuid": 11111,
+            "START": (1,1)
+        },
+        "robot 2": {
+            "name": "robot 2",
+            "address": "YY:YY:YY:YY:YY:YY",
+            "write_uuid": 22222,
+            "START": (10,2)
+        }
     }
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-    video_feed = [web_cam_distance]
+    # video_feed = [web_cam_distance]
     for video_input in video_feed:
         driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
@@ -32,8 +52,8 @@ def driver_code(video_input, robots):
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
+    print("Corners detected")
 
-    
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
@@ -47,14 +67,43 @@ def driver_code(video_input, robots):
                 break
             if time.time() - last_time > 2 and robots['robot 1']['START'] != (0,0):  
                 last_time = time.time()
-                print(robots['robot 1']['START'])
+                # print(robots['robot 1']['START'])
                 if not solver_ran:
+                    print("Running SMT Solver")
                     solution = central_node.run_solver(robots)
                     solver_ran = True
-                    schedules = central_node.convert_solution_to_schedules(solution)
-                    instructions = central_node.generate_point_to_point_movement_instructions(schedules)
-                    print("Instructions: ", instructions)
-                    # central_node.send_instructions(instructions)
+                    task_schedules = central_node.convert_solution_to_schedules(solution)
+                    instructions = central_node.generate_point_to_point_movement_instructions(task_schedules)
+                    movement_schedule_1 = central_node.convert_movement_instructions_to_schedule(instructions[0], robots['robot 1']['START'])
+                    movement_schedule_2 = central_node.convert_movement_instructions_to_schedule(instructions[1], robots['robot 2']['START'])
+                    collisions = central_node.check_path_collisions(movement_schedule_1, movement_schedule_2)
+                    if len(collisions) > 0:
+                        print("Collisions detected! Choosing robot to wait...")
+                        if collisions:
+                            collision = collisions[0]  # Handle first collision
+                            robot_to_wait = central_node.resolve_collision(task_schedules[0], task_schedules[1], collision, central_node.tasks)
+                            if robot_to_wait is not None:
+                                # Find index in instruction list where collision occurs 
+                                current_time = 0
+                                index_to_insert_wait = 0
+                                for i, instruction in enumerate(instructions[robot_to_wait]):
+                                    if ':' in instruction:
+                                        _, duration = instruction.split(':')
+                                        duration = int(duration)
+                                    else:
+                                        duration = TURN_DURATION_MS*8  # P/D duration
+                                    current_time += duration
+                                    if current_time > collision['time']:
+                                        index_to_insert_wait = i
+                                        break
+                                # Insert wait at the correct index
+                                instructions[robot_to_wait].insert(index_to_insert_wait, "W:100")
+                                print(f"Robot {robot_to_wait} will wait")
+                                print(f"New instructions for robot {robot_to_wait}: {instructions[robot_to_wait]}")
+                    else:
+                        print("No collisions detected! Sending instructions...")
+                    
+                    central_node.send_instructions(instructions)
 
             if cv.waitKey(1) == ord('r'):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
@@ -73,13 +122,20 @@ class CentralNode:
     LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
         self.bluetooth_client = self.init_bluetooth_module()
-        self.robots = self.init_robots(robots) # ensure connection is established
+        self.init_robots(robots) # ensure connection is established
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
         self.robot_calibration_and_sync()
 
     def init_robots(self, robots):
-        print("initialized robots: ",robots)
-        pass
+        self.robots = {}
+        for robot_id in robots.keys():
+            # Find matching device config
+            self.robots[robot_id] = RobotConnection(
+                device_address=robots[robot_id]["address"],
+                device_name=robot_id,
+                characteristic_uuid=robots[robot_id]["write_uuid"],
+                start_loc=robots[robot_id]["START"]
+            )
 
     def init_bluetooth_module(self):
         pass
@@ -90,20 +146,23 @@ class CentralNode:
         paths = self.vg.paths
 
         print("graph: ", graph)
-        print("paths: ", paths)
-        try:
-            gr.print_path_weights(graph, paths['robot 2'])
-        except Exception as e:
-            print(e)
+        # print("paths: ", paths)
+        # print(f"Straight path length: {gr.get_path_weights(graph, [(1,1), (1,2)])}")
+        # print(f"Diagonal path length: {gr.get_path_weights(graph, [(1,1), (2,2)])}")
+
+        # try:
+        #     gr.get_path_weights(graph, paths['robot 2'])
+        # except Exception as e:
+        #     print(e)
 
         agents = [
-            Robot(id=0, start=robots['robot 2']['START']),
-            # Robot(id=1, start=(1,9)),
+            Robot(id='robot 1', start=robots['robot 1']['START']),
+            Robot(id='robot 2', start=robots['robot 2']['START']),
         ]
         tasks = [
-            Task(id=0, start=(11,1),  end=(15,2), deadline=10000),
-            Task(id=1, start=(2,2),  end=(15,1), deadline=10000),
-            Task(id=2, start=(33, 4),  end=(7,1),  deadline=15000),
+            Task(id=0, start=(11,1),  end=(15,2), deadline=5000),
+            Task(id=1, start=(2,2),  end=(15,1), deadline=5000),
+            Task(id=2, start=(3, 4),  end=(7,1),  deadline=6000),
             # Task(id=3, start=(3,2),  end=(9, 4), deadline=3500),
             # Task(id=4, start=(7,9), end=(7,7),  deadline=4000)
         ]
@@ -124,7 +183,6 @@ class CentralNode:
 
         self.action_points = ap_set
         num_aps = len(self.action_points)
-        print("Action points: ", ap_set)
         print("Action points: ", self.action_points)
 
         # Remap agent and task start/end indices into the action_points indices [0, len(action_points)-1], leaving self.action_points containing the intersection id of the action point
@@ -141,12 +199,49 @@ class CentralNode:
             for j in range(solver_size):
                 if i == j:
                     solver_graph[i][j] = 0
+                    solver_graph[j][i] = 0
                 else:
                     try:
-                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic)
+                        temp_graph = graph.copy()
+                        
+                        path = gr.safe_astar_path(temp_graph, self.action_points[i], self.action_points[j], gr.heuristic)
+                        if path is None:
+                            continue
                         print(path)
-                        solver_graph[i][j] = gr.print_path_weights(graph, path)
-                        solver_graph[j][i] = gr.print_path_weights(graph, path)
+                        turning_cost = 0
+                        movement_cost = gr.get_path_weights(temp_graph, path)
+                        print(f"Movement cost: {movement_cost}")
+                        # Add turning costs to edges along path
+                        prev_direction = 0 # North
+                        for src, dest in zip(path[:-1], path[1:]):
+                            src_pos = temp_graph.nodes[src].get('pos')
+                            dest_pos = temp_graph.nodes[dest].get('pos')
+                            
+                            # Calculate direction vector
+                            dx = dest_pos[0] - src_pos[0]
+                            dy = dest_pos[1] - src_pos[1]
+                            
+                            if dx == 0:
+                                new_direction = 90 if dy > 0 else 270
+                            elif dy == 0:
+                                new_direction = 0 if dx > 0 else 180  
+                            elif dx > 0:
+                                new_direction = 45 if dy > 0 else 315
+                            else:
+                                new_direction = 135 if dy > 0 else 225
+                                
+                            angle_diff = abs(new_direction - prev_direction)
+                            if angle_diff > 180:
+                                angle_diff = 360 - angle_diff
+                                
+                            turning_cost += (angle_diff / 45) * TURN_DURATION_MS
+                                
+                            prev_direction = new_direction
+                        total_cost = movement_cost + turning_cost
+                        print(f"Total cost: {total_cost}")
+                        solver_graph[i][j] = int(total_cost)
+                        solver_graph[j][i] = int(total_cost)
+                        # print(solver_graph[i][j])
                     except Exception as e:
                         print(e)
 
@@ -175,6 +270,8 @@ class CentralNode:
         for robot_id in range(num_robots):
             schedule = []
             agent_data = solution['agt'][robot_id]
+
+            
 
             for i in range(len(agent_data['t'])):
                 time = agent_data['t'][i]
@@ -220,26 +317,28 @@ class CentralNode:
         return robot_schedules
 
     def generate_point_to_point_movement_instructions(self, robot_schedules):
-            MOVE_DURATION = 200  # time to move between neighboring intersections
-            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
             PICKUP_CMD = "P" # Do a spin
             DROPOFF_CMD = "D" # Do a spin
             FORWARD_CMD = "F"
             TURN_LEFT_CMD = "L"
             TURN_RIGHT_CMD = "R"
+            WAIT_CMD = "W"
             instructions_set = []
             for robot_id, rschedule in enumerate(robot_schedules):
                 instructions = []
                 prev_direction = None
-
-                print(f"Robot {robot_id} Instructions:")
+                movement_start = False
+                print(f"Robot {robot_id} paths:")
                 for i in range(len(rschedule)-1):
                     src = rschedule[i]['location']
                     dest = rschedule[i+1]['location']
                     next_action = rschedule[i+1]['action']
-
+                    if i > 0 and next_action != "WAIT":
+                        movement_start = True
                     # Compute full path between src and dest
                     path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get('pos'), self.vg.graph.nodes[dest].get('pos'), gr.heuristic)
+                    if movement_start == False and gr.get_path_weights(self.vg.graph, path) < rschedule[i+1]['time'] - rschedule[i]['time']:
+                        instructions.append(f"{WAIT_CMD}:{int(rschedule[i+1]['time'] - rschedule[i]['time'] - gr.get_path_weights(self.vg.graph, path))}")
                     print(path)
 
                     if len(path) > 1:
@@ -259,40 +358,250 @@ class CentralNode:
                                 }
                                 angle = direction_angles[direction] - direction_angles[prev_direction]
                                 if angle > 180:
-                                    angle -= 360
-                                elif angle <= -180:
-                                    angle += 360
+                                    angle = 360 - angle
 
-                                duration = int(abs(angle) / 45 * TURN_DURATION)
+                                duration = int(abs(angle) / 45 * TURN_DURATION_MS)
                                 if angle > 0:
                                     instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
                                 elif angle < 0:
                                     instructions.append(f"{TURN_LEFT_CMD}:{duration}")
 
-                            i = 1
-                            while (step + i < len(path)-1):
-                                if self.direction_to_turn(path[step + i], path[step + i + 1]) == direction:
-                                    i += 1
+                            j = 1
+                            while (step + j < len(path)-1):
+                                if self.direction_to_turn(path[step + j], path[step + j + 1]) == direction:
+                                    j += 1
                                 else:
                                     break
 
-                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION * i}")
-                            step += i
+                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION_MS * j}")
+                            step += j
                             prev_direction = direction
 
                     # After movement
                     if next_action == "PICKUP":
                         instructions.append(PICKUP_CMD)
                     elif next_action == "DROPOFF":
-                        instructions.append(DROPOFF_CMD)
+                        instructions.append(DROPOFF_CMD)                        
 
                 instructions_set.append(instructions)
-                instructions_str = ">".join(instructions)
-                print(f"Robot {robot_id} Instruction string:")
-                print(instructions_str)
-            for robot_id, instructions in enumerate(instructions_set):
-                self.send_instructions(robot_id, instructions)
+                print(f"Robot {robot_id} Instructions: {instructions}")
             return instructions_set
+    
+    def convert_movement_instructions_to_schedule(self, instruction_set, start_pos):
+        schedule = []
+        current_time = 0
+        current_pos = start_pos
+        current_direction = 'N'
+        
+        direction_changes = {
+            'N': {'L': 'NW', 'R': 'NE'},
+            'NE': {'L': 'N', 'R': 'E'},
+            'E': {'L': 'NE', 'R': 'SE'},
+            'SE': {'L': 'E', 'R': 'S'},
+            'S': {'L': 'SE', 'R': 'SW'},
+            'SW': {'L': 'S', 'R': 'W'},
+            'W': {'L': 'SW', 'R': 'NW'},
+            'NW': {'L': 'W', 'R': 'N'}
+        }
+        
+        direction_vectors = {
+            'N': (-1, 0),
+            'NE': (-1, 1),
+            'E': (0, 1),
+            'SE': (1, 1),
+            'S': (1, 0),
+            'SW': (1, -1),
+            'W': (0, -1),
+            'NW': (-1, -1)
+        }
+        
+        # Add initial position
+        schedule.append({
+            'time': current_time,
+            'location': current_pos
+        })
+        
+        for instruction in instruction_set:
+            if ':' in instruction:
+                cmd, duration = instruction.split(':')
+                duration = int(duration)
+            else:
+                cmd = instruction
+                duration = TURN_DURATION_MS*8  # 360 degree spin for P/D
+                
+            if cmd == 'F':
+                # Calculate new position based on direction and duration
+                move_vector = direction_vectors[current_direction]
+                
+                distance = duration / MOVE_DURATION_MS
+                
+                if move_vector[0] != 0 and move_vector[1] != 0:
+                    distance = distance * DIAGONAL_MULTIPLIER
+                
+                dx = move_vector[0] * distance
+                dy = move_vector[1] * distance
+
+                current_pos = (current_pos[0] + dx, current_pos[1] + dy)
+                current_time += duration
+                
+            elif cmd in ['L', 'R']:
+                current_direction = direction_changes[current_direction][cmd]
+                current_time += duration
+                
+            elif cmd in ['P', 'D']:
+                # Pickup/Dropoff adds time but doesn't change position
+                current_time += TURN_DURATION_MS*8  # Duration for 360 degree spin
+            elif cmd == 'W':
+                # Initial wait time
+                current_time += duration
+            schedule.append({
+                'time': current_time,
+                'location': current_pos
+            })
+        
+        return schedule
+
+    def check_path_collisions(self, schedule1, schedule2, safety_radius=5):
+        collisions = []
+        
+        # Check each pair of path segments
+        for i in range(len(schedule1) - 1):
+            for j in range(len(schedule2) - 1):
+                r1_start = schedule1[i]
+                r1_end = schedule1[i + 1]
+                r2_start = schedule2[j]
+                r2_end = schedule2[j + 1]
+                
+                # Find overlapping time range
+                t_start = max(r1_start['time'], r2_start['time'])
+                t_end = min(r1_end['time'], r2_end['time'])
+                
+                if t_start > t_end:
+                    continue  # No time overlap
+                    
+                # Check positions at each time step
+                for step in range(t_end - t_start):
+                    t = t_start + (t_end - t_start) * (step / (t_end - t_start))
+                    
+                    # Interpolate positions of both robots at time t
+                    for start, end, current_t in [(r1_start, r1_end, t), (r2_start, r2_end, t)]:
+                        # Skip if time is outside segment
+                        if current_t < start['time'] or current_t > end['time']:
+                            continue
+                            
+                        # If robot is stationary
+                        if start['time'] == end['time']:
+                            pos1 = r1_start['location']
+                            pos2 = r2_start['location']
+                        else:
+                            # Calculate interpolation factors
+                            t1 = (t - r1_start['time']) / (r1_end['time'] - r1_start['time']) if (r1_end['time'] - r1_start['time']) != 0 else 0
+                            t2 = (t - r2_start['time']) / (r2_end['time'] - r2_start['time']) if (r2_end['time'] - r2_start['time']) != 0 else 0
+                            
+                            # Interpolate positions
+                            x1 = r1_start['location'][0] + (r1_end['location'][0] - r1_start['location'][0]) * t1
+                            y1 = r1_start['location'][1] + (r1_end['location'][1] - r1_start['location'][1]) * t1
+                            x2 = r2_start['location'][0] + (r2_end['location'][0] - r2_start['location'][0]) * t2
+                            y2 = r2_start['location'][1] + (r2_end['location'][1] - r2_start['location'][1]) * t2
+                            
+                            pos1 = (x1, y1)
+                            pos2 = (x2, y2)
+                    
+                    # Calculate distance between robots
+                    dx = pos1[0] - pos2[0]
+                    dy = pos1[1] - pos2[1]
+                    distance = (dx*dx + dy*dy) ** 0.5
+                    
+                    if distance < safety_radius:
+                        midpoint = ((pos1[0] + pos2[0]) / 2, (pos1[1] + pos2[1]) / 2)
+                        collisions.append({
+                            'time': t,
+                            'location': midpoint,
+                            'segment1': (i, i+1),
+                            'segment2': (j, j+1)
+                        })
+                        break  # Found collision for this segment pair
+        
+        return collisions
+
+    def resolve_collision(self, task_schedule1, task_schedule2, collision, tasks):
+        """
+        Resolves collision by checking task deadlines and inserting wait if possible.
+        
+        Args:
+            task_schedule1, task_schedule2: Task schedules from SMT solver (pickup/dropoff)
+            collision: Dict with collision info
+            tasks: List of Task objects with deadlines
+            
+        Returns:
+            robot_to_wait or none if cannot resolve
+        """
+        collision_time = collision['time']
+        
+        # Find active tasks and their deadlines for both robots
+        task1, task1_deadline = None, float('inf')
+        task2, task2_deadline = None, float('inf')
+        
+        for step in task_schedule1:
+            if step['task_id'] is not None and step['action'] == 'PICKUP':
+                # Look for matching dropoff
+                for dropoff in task_schedule1:
+                    if (dropoff['task_id'] == step['task_id'] and dropoff['action'] == 'DROPOFF' and step['time'] <= collision_time <= dropoff['time']):
+                        task1 = step['task_id']
+                        task1_deadline = dropoff['time']
+                        break
+                if task1 is not None:
+                    break
+
+        for step in task_schedule2:
+            if step['task_id'] is not None and step['action'] == 'PICKUP':
+                # Find matching dropoff
+                for dropoff in task_schedule2:
+                    if (dropoff['task_id'] == step['task_id'] and dropoff['action'] == 'DROPOFF' and step['time'] <= collision_time <= dropoff['time']):
+                        task2 = step['task_id']
+                        task2_deadline = dropoff['time']
+                        break
+                if task2 is not None:
+                    break
+        
+        # Calculate task completion times after potential wait
+        task1_completion = task1_deadline if task1 is not None else float('inf')
+        task2_completion = task2_deadline if task2 is not None else float('inf')
+
+        wait_duration = 200  # Base wait time for robot to pass
+        
+        time_until_deadline1 = tasks[task1].deadline - task1_completion if task1 is not None else float('inf')
+        time_until_deadline2 = tasks[task2].deadline - task2_completion if task2 is not None else float('inf')
+        
+        if time_until_deadline1 > wait_duration and (time_until_deadline1 > time_until_deadline2 or time_until_deadline2 < wait_duration):
+            # Modify robot 1's schedule to wait
+            return 0
+        elif time_until_deadline2 > wait_duration:
+            # Modify robot 2's schedule
+            return 1  
+        return None
+
+    def send_instructions(self, instructions_set):
+        for i, instructions in enumerate(instructions_set):
+            robot_id = "robot 1" if i == 0 else "robot 2"
+            for instruction in instructions:
+                if ':' in instruction:
+                    command, duration = instruction.split(':')
+                    duration = int(duration)
+                else:
+                    command = instruction
+                if command == 'F':
+                    self.robots[robot_id].move(duration)
+                elif command == 'L':
+                    self.robots[robot_id].turn(duration)
+                elif command == 'R':
+                    self.robots[robot_id].turn(duration)
+                elif command == 'P' or command == 'D':
+                    self.robots[robot_id].turn(TURN_DURATION_MS*8)  # 360 degree spin
+                elif command == 'W':
+                    self.robots[robot_id].wait(duration)
+                print(f"Sent instruction {instruction} to {robot_id}")
+            print(f"Finished sending instructions to {robot_id}")
 
     def direction_to_turn(self, src, dest):
         if dest[1] == src[1] and dest[0] < src[0]:
@@ -311,24 +620,6 @@ class CentralNode:
             return 'SW'
         elif dest[0] < src[0] and dest[1] < src[1]:
             return 'NW'
-
-    def send_instructions(self, robot, instructions):
-        for instruction in instructions:
-            self.send_instruction(robot, instruction)
-        pass
-
-    def send_instruction(self, robot, instruction, duration=None):
-        if instruction == 'F':
-            self.send_command(duration)
-        elif instruction == 'L':
-            self.motor_controller.turn_left(duration)
-        elif instruction == 'R':
-            self.motor_controller.turn_right(duration)
-        elif instruction == 'P' or command == 'D':
-            self.motor_controller.spin()
-        print(f"sent to robot: {robot}, instruction: {instruction}")
-        return
-        # self.bluetooth_client.send(robot, instruction)
 
     def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
