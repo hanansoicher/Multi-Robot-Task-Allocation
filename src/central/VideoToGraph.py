@@ -94,7 +94,19 @@ class VideoToGraph:
         except:
             future.set_result(None)
         return await future
-
+    
+    def get_action_point(self, action_point):
+        action_point = self.tracked_qr_objects[action_point] if self.tracked_qr_objects.__contains__(action_point) else None
+        return action_point
+    
+    def get_nearest_node_to_actionpoint(self, action_point):
+    
+        action_point = self.get_action_point(action_point)
+        if action_point is None:
+            return None
+        print(action_point)
+        center = uf.find_center_of_rectangle(action_point)
+        return gr.find_nearest_node(self.graph, center)
 
     # Create and update graph from the video input
     def start_environment(self):
