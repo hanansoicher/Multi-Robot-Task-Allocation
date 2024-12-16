@@ -16,10 +16,10 @@ def main():
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
     web_cam_distance = "img/video/center_test.mov"
     robots = {
-        'robot 1': {'START': (0,0)} #,'R1:XX'}, # start, MAC address
-        # 'robot 2': 'R2:XX:', 
+        'robot 1': {'START': (0,0)}, #,'R1:XX'}, # start, MAC address
+        'robot 2': {'R2:XX': None}, 
     }
-    video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
+    video_feed = [web_cam_distance, web_cam_close, web_cam_further_angle, web_cam_further_top, web_cam_distance]
     video_feed = [web_cam_distance]
     for video_input in video_feed:
         driver_code(video_input, robots)
@@ -32,7 +32,6 @@ def driver_code(video_input, robots):
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
-
     
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
@@ -40,8 +39,8 @@ def driver_code(video_input, robots):
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-                frame = central_node.vg.overlay_text(frame, f"blocksize in cm: {central_node.vg.block_size_cm}", (50,50))
-                frame = central_node.vg.overlay_text(frame, f"Update rate: {central_node.vg.overlay_update_frame_interval}", (100,100))
+                instructions_1 = {'robot 1': [central_node.vg.block_size_cm], 'robot 2': [central_node.vg.overlay_update_frame_interval]}
+                central_node.vg.display_robot_instructions(frame, instructions_1, robots)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
@@ -69,8 +68,8 @@ def driver_code(video_input, robots):
 class CentralNode:
 
     CORNER_OFFSET_CM = 0.5 # offset from the corner to the edge of our rectangle
-    HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
-    LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
+    HEIGHT_CM = 61.5 - 2 * CORNER_OFFSET_CM  
+    LENGTH_CM = 92 - 2 * CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
         self.bluetooth_client = self.init_bluetooth_module()
         self.robots = self.init_robots(robots) # ensure connection is established

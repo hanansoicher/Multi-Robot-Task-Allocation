@@ -83,14 +83,14 @@ class VideoToGraph:
                 self.running = False
                 break
 
-            refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
+            refresh_graph = True if frame_count % self.overlay_update_frame_interval * 3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             if update:
-                graph = self.convert_image_to_graph(frame, refresh_graph)
+                self.convert_image_to_graph(frame, refresh_graph)
                 self.detect_objects(frame)
                 refresh_graph = False
 
-            overlay_image = self.draw_overlay(frame, graph)
+            overlay_image = self.draw_overlay(frame, self.graph)
             self.draw_objects_overlay(overlay_image)
             try:
                 no_robots, overlay_image = self.no_robots(overlay_image)
@@ -103,7 +103,7 @@ class VideoToGraph:
                     for robot_path in paths.keys():
                         if robot_path:
                             path = paths[robot_path]
-                            overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
+                            overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
                             self.paths[robot_path] = path
             except:
                 if update:
@@ -120,7 +120,7 @@ class VideoToGraph:
             top_left = self.corners[uf.TOP_LEFT]
             bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
             path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
-            if path:
+            if path is not None:
                 overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
                 self.paths['robot 1'] = path
                 gr.print_path_weights(self.graph, path)
@@ -155,7 +155,7 @@ class VideoToGraph:
     def draw_overlay(self, image, graph):
         overlay_image = gr.draw_nodes_overlay(graph, image)
         overlay_image = gr.draw_edges_overlay(graph, overlay_image)
-        overlay_image = self.draw_corners_overlay(overlay_image)
+        # overlay_image = self.draw_corners_overlay(overlay_image)
         return overlay_image
 
     def draw_objects_overlay(self, overlay_image):
@@ -287,9 +287,24 @@ class VideoToGraph:
 
         return closest_id
     
-    def overlay_text(self, image, text, position, color=(0,0,0)):
-        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, 1.3, color, 3)
+    def display_robot_instructions(self, overlay_image, instructions, robots):
+        pos_x, pos_y = (self.corners[uf.TOP_LEFT][0]) // 10, (self.square_pixel_height // 20) * 9
+        for robot in robots:
+            overlay_image = self.outline_text(overlay_image, f"{robot}: {instructions[robot]}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
+            pos_y += 65  
+
+    def overlay_text(self, image, text, position, color=(0,0,0), scale=1.3):
+        cv.putText(image, text, position, cv.FONT_HERSHEY_SIMPLEX, scale, (color), thickness=2, lineType=cv.LINE_AA)
         return image
+    
+    def outline_text(self, image, text, position, color=(255,255,255), scale=1.3, outline=2):
+        font = cv.FONT_HERSHEY_SIMPLEX
+        color_outline = (0, 0, 0)  # Black outline
+
+        cv.putText(image, text, position, font, scale, color_outline, outline, lineType=cv.LINE_AA)
+        cv.putText(image, text, position, font, scale, color, outline-2, lineType=cv.LINE_AA)
+        return image
+
 
 if __name__ == "__main__":
     main()
