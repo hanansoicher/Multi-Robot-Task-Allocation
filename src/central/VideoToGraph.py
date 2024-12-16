@@ -15,10 +15,6 @@ def main():
     vg.tear_down()
 
 class VideoToGraph:
-
-    def track_robots(self, robots):
-        pass
-
     
     def initialize_tracker(self, cap):
 
@@ -130,9 +126,6 @@ class VideoToGraph:
     async def get_robot_positions(self, robot):
         future = asyncio.Future()
         try:
-            print(self.tracked_robots)
-            print(robot)
-            print(self.tracked_robots[robot])
             bbox, center = self.tracked_robots[robot]
             future.set_result(center)
         except:
@@ -171,17 +164,17 @@ class VideoToGraph:
                 self.corners, self.H = uf.find_corners_feed(self.cap)
 
             # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
-
-            overlay_image = frame.copy()
-
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             overlay_image = frame.copy()
             if update:
                 self.convert_image_to_graph(overlay_image, refresh_graph)
                 self.detect_qr_objects(overlay_image)
-                self.update_robot_positions_from_trackers(overlay_image)
                 refresh_graph = False
+
+            self.update_robot_positions_from_trackers(frame)
+            for i in range(len(self.robot_trackers)):
+                self.draw_robot_position(overlay_image, i)
 
             # self.detect_robots(overlay_image, self.robots_colors)
             if self.display_grid:
@@ -334,7 +327,6 @@ class VideoToGraph:
                 center_y = (top_left[1] + bottom_right[1]) // 2 
                 center = (center_x, center_y)
                 self.update_robot_position((bbox,center), i)
-                self.draw_robot_position(image, self.robots[i])
             else:
                 # Tracking failure
                 cv.putText(image, f"Tracking failed for Node {i}", (100, 50 + i * 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -361,12 +353,12 @@ class VideoToGraph:
 
     def draw_robot_position(self, image, robot, outline_color = uf.GREEN,center_color = uf.RED):
         if robot in self.tracked_robots.keys():
-            bbox, center = self.tracked_robots[robot]
+            (bbox, center) = self.tracked_robots[robot]
             # cv.drawContours(image, [contours], -1, outline_color, 2)
             (x, y, w, h) = [int(v) for v in bbox]
             cv.rectangle(image, (x, y), (x + w, y + h), outline_color, 2)
             cv.circle(image, center, 7, center_color, -1)
-            self.outline_text(image, robot, (center[0]-65, center[1]-20), color=uf.GREEN, scale=1.2, outline=4)
+            self.outline_text(image, f"robot {robot}", (center[0]-65, center[1]-20), color=uf.GREEN, scale=1.2, outline=4)
         return image
 
     def update_robot_position(self, bbox, robot):
