@@ -35,7 +35,7 @@ async def driver_code(video_input, robots):
     central_node = CentralNode(video_input, robots)
 
     # Initialize
-    await central_node.init()
+    # await central_node.init()
 
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
@@ -50,18 +50,19 @@ async def driver_code(video_input, robots):
                 frame = central_node.vg.frame_queue.get()
                 pos1 = await central_node.vg.get_robot_positions(uf.ROBOT_ONE)
                 pos2 = await central_node.vg.get_robot_positions(uf.ROBOT_TWO)
-                print("Robot 1: ", pos1)
-                print("Robot 2: ", pos2)
-                # if pos1 is not None and pos2 is not None:     
-                    # instructions_1 = {'robot 1': [pos1], 'robot 2': [pos2]}
-                    # central_node.vg.display_robot_instructions(frame, instructions_1, robots)
+                instructions_1 = [('robot 1', [(0,0)]), ('robot 2', [(1,1)])]
+
+                if pos1 is not None and pos2 is not None:     
+                    print(pos1[0], pos1[1])
+                    instructions_1 = [('robot 1', (float(pos1[0]), float(pos1[1]))), ('robot 2', (float(pos2[0]), float(pos2[1])))]
+                central_node.vg.display_robot_instructions(frame, instructions_1, robots)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
             if time.time() - last_time > 2:  
                 last_time = time.time()
                 if not solver_ran:
-                   # solution = central_node.run_solver(robots)
+                    #solution = central_node.run_solver(robots)
                     solver_ran = True
                     # schedules = central_node.convert_solution_to_schedules(solution)
                     # instructions = central_node.generate_point_to_point_movement_instructions(schedules)

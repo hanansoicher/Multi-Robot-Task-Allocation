@@ -96,6 +96,8 @@ class VideoToGraph:
                 self.running = False
                 break
 
+            if self.corners == {}:
+                self.corners = uf.find_corners_feed(self.cap)
             refresh_graph = True if frame_count % self.overlay_update_frame_interval * 3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             if update:
@@ -302,8 +304,8 @@ class VideoToGraph:
     
     def display_robot_instructions(self, overlay_image, instructions, robots):
         pos_x, pos_y = (self.corners[uf.TOP_LEFT][0]) // 10, (self.square_pixel_height // 20) * 9
-        for robot in robots:
-            overlay_image = self.outline_text(overlay_image, f"{robot}: {instructions[robot]}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
+        for (robot, instruction) in instructions:
+            overlay_image = self.outline_text(overlay_image, f"{robot}: {instruction}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
             pos_y += 65  
 
     def overlay_text(self, image, text, position, color=(0,0,0), scale=1.3):
