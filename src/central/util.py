@@ -10,6 +10,8 @@ class UtilityFunctions:
     RED=(0,0,255)
     GREEN=(0,255,0)
     BLUE=(255,0,0)
+    ROBOT_ONE='robot 1'
+    ROBOT_TWO='robot 2'
 
     @staticmethod
     def euclidean_distance(point1, point2):
@@ -166,7 +168,6 @@ class UtilityFunctions:
     
     @staticmethod
     def find_center_of_rectangle(positions):
-        # (x,y) - (topleft,topright,bottomright,bottomleft)
         top_left = positions[0]
         bottom_right = positions[2]
 

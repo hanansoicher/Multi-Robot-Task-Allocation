@@ -5,6 +5,8 @@ import threading
 import queue
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
+import asyncio
+
 
 def main():
     video = "img/video/test_red_close.mov"
@@ -69,6 +71,17 @@ class VideoToGraph:
         except:
             print("Thread couldn't be joined")
         cv.destroyAllWindows()
+
+    async def get_robot_positions(self, robot):
+        future = asyncio.Future()
+        try:
+            pos = self.tracked_objects[robot]
+            center = uf.find_center_of_rectangle(pos)
+            future.set_result(center)
+        except:
+            future.set_result(None)
+        return await future
+
 
     # Create and update graph from the video input
     def start_environment(self):
