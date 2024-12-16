@@ -72,21 +72,18 @@ class VideoToGraph:
             print("Thread couldn't be joined")
         cv.destroyAllWindows()
 
-    async def get_robot_positions(self, robot):
-        future = asyncio.Future()
-        try:
-            pos = self.tracked_objects[robot]
-            center = uf.find_center_of_rectangle(pos)
-            future.set_result(center)
-        except:
-            future.set_result(None)
-        return await future
-
+    def get_robot_positions(self, robot):
+        pos = self.tracked_objects[robot]
+        center = uf.find_center_of_rectangle(pos)
+        return center
 
     # Create and update graph from the video input
     def start_environment(self):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
+
+
+
         while self.running:
 
             # Capture frame-by-frame
@@ -187,6 +184,7 @@ class VideoToGraph:
 
     def draw_objects_overlay(self, overlay_image):
         for key in self.tracked_objects.keys():
+            print(self.tracked_objects, key)
             pts = self.tracked_objects[key].astype(int)
             cv.polylines(overlay_image, [pts], isClosed=True, color=uf.GREEN, thickness=2)
             cv.putText(overlay_image, key, (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
@@ -265,6 +263,7 @@ class VideoToGraph:
         
         if retval:
             for i, qr_code_info in enumerate(decoded_infos):
+                print("Received QR Code data of ", qr_code_info)
                 self.update_position(points[i], qr_code_info)
 
         for key in self.tracked_objects.keys():
@@ -292,11 +291,13 @@ class VideoToGraph:
         robot = robot if robot else self.get_nearest_object(position)
         if robot:
             try:
+                print("update_position", position, 'robot', robot)
                 previous_position = self.tracked_objects[robot]
                 same_position = np.array_equal(position, previous_position)
                 if not same_position:
                     self.tracked_objects[robot] = position
-            except:
+            except Exception as e:
+                print("EXCEPTION", e)
                 self.tracked_objects[robot] = position
 
 

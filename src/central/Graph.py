@@ -242,7 +242,7 @@ class Graph(nx.Graph):
             pixel_distances.append(pixel_dist)
         total = uf.kahan_sum(total_weight)
         total_pixel_dist = uf.kahan_sum(pixel_distances)
-        print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
+        # print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
 
         return total
 

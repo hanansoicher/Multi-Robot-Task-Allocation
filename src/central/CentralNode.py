@@ -1,4 +1,3 @@
-import asyncio
 import numpy as np
 import VideoToGraph as v2g
 import time
@@ -10,13 +9,14 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from SMrTa.MRTASolver import MRTASolver, Robot
 from SMrTa.MRTASolver.objects import Task
-from robot import Robot as IndividualNode
+from client import Robot as IndividualNode
 import json 
 from dotenv import load_dotenv
+import requests
 
 load_dotenv()
 
-async def main():
+def main():
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
@@ -32,30 +32,36 @@ async def main():
     print("Searching for env", e)
     video_feed = [int(os.getenv('VIDEO_FEED', 0))]
     for video_input in video_feed:
-        await driver_code(video_input, robots)
+        driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
 
-async def driver_code(video_input, robots):
+def driver_code(video_input, robots):
     solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
-
-    # Initialize
-    # await central_node.init()
+    central_node.init()
 
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
 
-    
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-                pos1 = await central_node.vg.get_robot_positions(uf.ROBOT_ONE)
-                pos2 = await central_node.vg.get_robot_positions(uf.ROBOT_TWO)
+
+                pos1, pos2 = None, None
+                if central_node.can_calibrate(): 
+                    central_node.calibrate()
+                    
+                if len(central_node.vg.tracked_objects) >= 1:
+                    pos1 = central_node.vg.get_robot_positions(uf.ROBOT_ONE)
+
+                    # Once we have identified at least one robot, try to calibrate
+                if len(central_node.vg.tracked_objects) >= 2:
+                    pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
                 instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
                 if pos1 is not None and pos2 is not None:     
@@ -92,13 +98,36 @@ class CentralNode:
     def __init__(self, camera_input, robots):
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
         self.robot_data = robots
+        self.camera_input = camera_input
+        self.has_already_calibrated = False
 
-    async def init(self):
-        self.robots = await self.init_robots(self.robot_data) # ensure connection is established
-        await self.robot_calibration_and_sync()
+    def init(self):
+        # TEMPORARY, REMOVE LATER
+        self.robots = self.init_robots(self.robot_data) # ensure connection is established
+
+    def can_calibrate(self):
+        if self.has_already_calibrated:
+            return False 
+        
+        for rob in self.robots:
+            if rob.device_name not in self.vg.tracked_objects:
+                print("CANT CALIBRATE!!! DIDNT FIND", rob.device_name)
+                return False
+        
+        if not self.has_already_calibrated:
+            self.has_already_calibrated = True
+            return True 
+
+        return False
+            
+        
+
+    def calibrate(self):
+        print("CALIBRATING!!!")
+        self.robot_calibration_and_sync()
 
 
-    async def init_robots(self, robots, reconnect_time = 2):
+    def init_robots(self, robots, reconnect_time = 2):
         all_robots = []
         for r in robots:
             new_robot = IndividualNode(
@@ -108,7 +137,8 @@ class CentralNode:
                 reconnect_time
             ) 
 
-            await new_robot.init()
+            new_robot.init()
+            # self.vg.tracked_objects[r['name']] = new_robot
 
             all_robots.append(new_robot)
 
@@ -350,24 +380,32 @@ class CentralNode:
             self.send_instruction(robot, instruction)
         pass
 
-    async def send_instruction(self, robot, instruction, duration=None):
+    def send_instruction(self, robot, instruction, duration=None):
         if instruction == 'F':
-            await robot.move(1)
+            robot.move(1)
         elif instruction == 'L':
-            await robot.turn(-90)
+            robot.turn(-90)
         elif instruction == 'R':
-            await robot.turn(-90)
+            robot.turn(-90)
         # elif instruction == 'P' or  instruction == 'D':
-        #     await self.motor_controller.spin()
+        #     self.motor_controller.spin()
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
 
-    async def robot_calibration_and_sync(self):
+    def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
         # move forward, orientation etc
-        return 1
+        for robot in self.robots:
+            print("Calibrating", robot.device_name)
+            
+            # Move the robot forward 1 
+            initial_pos = self.vg.get_robot_positions(robot.device_name)
+            robot.move(1)
+            final_pos = self.vg.get_robot_positions(robot.device_name)
 
-    async def tear_down(self):
+            print("Initial and final pos", initial_pos, final_pos)
+
+    def tear_down(self):
         # Stop the thread and release resources 
         self.vg.tear_down()
         if self.vg.thread.is_alive():
@@ -376,4 +414,5 @@ class CentralNode:
         print("Tear down done")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # cap = cv.VideoCapture(0)
+    main()
