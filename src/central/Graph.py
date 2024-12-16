@@ -126,7 +126,7 @@ class Graph(nx.Graph):
         pixel_distance = uf.euclidean_distance((pos_a_x, pos_a_y), (pos_b_x, pos_b_y))
         
         # Determine the direction based on threshold
-        direction = Graph.direction((pos_a_x, pos_a_y), (pos_b_x, pos_b_y), pixel_distance/3)
+        direction = Graph.direction_pixel((pos_a_x, pos_a_y), (pos_b_x, pos_b_y), pixel_distance/3)
         
         # Adjust the weight based on the determined direction
         if direction == Graph.DIAGONAL:
