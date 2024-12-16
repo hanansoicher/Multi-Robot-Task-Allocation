@@ -12,6 +12,9 @@ from SMrTa.MRTASolver import MRTASolver, Robot
 from SMrTa.MRTASolver.objects import Task
 from robot import Robot as IndividualNode
 import json 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 async def main():
     web_cam_close = "img/video/webcam_red_close.mov"
@@ -24,7 +27,10 @@ async def main():
         robots = json.load(f)['devices']
 
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-    video_feed = [0]
+
+    e = os.environ["VIDEO_FEED"]
+    print("Searching for env", e)
+    video_feed = [int(os.getenv('VIDEO_FEED', 0))]
     for video_input in video_feed:
         await driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
@@ -58,16 +64,15 @@ async def driver_code(video_input, robots):
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
-            if time.time() - last_time > 2 and robots['robot 1']['START'] != (0,0):  
+            if time.time() - last_time > 2:  
                 last_time = time.time()
-                print(robots['robot 1']['START'])
-                if not solver_ran:
-                    solution = central_node.run_solver(robots)
-                    solver_ran = True
-                    schedules = central_node.convert_solution_to_schedules(solution)
-                    instructions = central_node.generate_point_to_point_movement_instructions(schedules)
-                    print("Instructions: ", instructions)
-                    # central_node.send_instructions(instructions)
+                # if not solver_ran:
+                #     solution = central_node.run_solver(robots)
+                #     solver_ran = True
+                #     schedules = central_node.convert_solution_to_schedules(solution)
+                #     instructions = central_node.generate_point_to_point_movement_instructions(schedules)
+                #     print("Instructions: ", instructions)
+                #     # central_node.send_instructions(instructions)
 
             if cv.waitKey(1) == ord('r'):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
@@ -357,10 +362,10 @@ class CentralNode:
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
 
-    def robot_calibration_and_sync(self):
+    async def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
         # move forward, orientation etc
-        pass
+        return 1
 
     async def tear_down(self):
         # Stop the thread and release resources 
