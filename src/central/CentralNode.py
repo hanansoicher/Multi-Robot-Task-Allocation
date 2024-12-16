@@ -1,3 +1,4 @@
+import asyncio
 import numpy as np
 import VideoToGraph as v2g
 import time
@@ -7,28 +8,35 @@ from Graph import Graph as gr
 import sys  
 import os 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from SMrTa.MRTASolver import MRTASolver
-from SMrTa.MRTASolver.objects import Robot, Task
+from SMrTa.MRTASolver import MRTASolver, Robot
+from SMrTa.MRTASolver.objects import Task
+from robot import Robot as IndividualNode
+import json 
 
-def main():
+async def main():
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
     web_cam_distance = "img/video/center_test.mov"
-    robots = {
-        'robot 1': {'START': (0,0)} #,'R1:XX'}, # start, MAC address
-        # 'robot 2': 'R2:XX:', 
-    }
+
+    # Read robots
+    with open('devices.json', 'r') as f:
+        robots = json.load(f)['devices']
+
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-    video_feed = [web_cam_distance]
+    video_feed = [0]
     for video_input in video_feed:
-        driver_code(video_input, robots)
+        await driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
 
-def driver_code(video_input, robots):
+async def driver_code(video_input, robots):
     solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
+
+    # Initialize
+    await central_node.init()
+
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
@@ -72,14 +80,29 @@ class CentralNode:
     HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
     LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
-        self.bluetooth_client = self.init_bluetooth_module()
-        self.robots = self.init_robots(robots) # ensure connection is established
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
-        self.robot_calibration_and_sync()
+        self.robot_data = robots
 
-    def init_robots(self, robots):
-        print("initialized robots: ",robots)
-        pass
+    async def init(self):
+        self.robots = await self.init_robots(self.robot_data) # ensure connection is established
+        await self.robot_calibration_and_sync()
+
+
+    async def init_robots(self, robots, reconnect_time = 2):
+        all_robots = []
+        for r in robots:
+            new_robot = IndividualNode(
+                r["address"],
+                r['name'],
+                r['write_uuid'],
+                reconnect_time
+            ) 
+
+            await new_robot.init()
+
+            all_robots.append(new_robot)
+
+        return all_robots
 
     def init_bluetooth_module(self):
         pass
@@ -317,25 +340,24 @@ class CentralNode:
             self.send_instruction(robot, instruction)
         pass
 
-    def send_instruction(self, robot, instruction, duration=None):
+    async def send_instruction(self, robot, instruction, duration=None):
         if instruction == 'F':
-            self.send_command(duration)
+            await robot.move(1)
         elif instruction == 'L':
-            self.motor_controller.turn_left(duration)
+            await robot.turn(-90)
         elif instruction == 'R':
-            self.motor_controller.turn_right(duration)
-        elif instruction == 'P' or command == 'D':
-            self.motor_controller.spin()
+            await robot.turn(-90)
+        # elif instruction == 'P' or  instruction == 'D':
+        #     await self.motor_controller.spin()
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
-        # self.bluetooth_client.send(robot, instruction)
 
     def robot_calibration_and_sync(self):
         # ensure that movement is calibrated
         # move forward, orientation etc
         pass
 
-    def tear_down(self):
+    async def tear_down(self):
         # Stop the thread and release resources 
         self.vg.tear_down()
         if self.vg.thread.is_alive():
@@ -344,4 +366,4 @@ class CentralNode:
         print("Tear down done")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
