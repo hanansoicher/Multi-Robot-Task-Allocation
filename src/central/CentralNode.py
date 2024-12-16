@@ -48,8 +48,13 @@ async def driver_code(video_input, robots):
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-                frame = central_node.vg.overlay_text(frame, f"blocksize in cm: {central_node.vg.block_size_cm}", (50,50))
-                frame = central_node.vg.overlay_text(frame, f"Update rate: {central_node.vg.overlay_update_frame_interval}", (100,100))
+                # pos1 = await central_node.vg.get_robot_positions(uf.ROBOT_ONE)
+                # pos2 = await central_node.vg.get_robot_positions(uf.ROBOT_TWO)
+                # print("Robot 1: ", pos1)
+                # print("Robot 2: ", pos2)
+                # # if pos1 is not None and pos2 is not None:     
+                # instructions_1 = {'robot 1': [(0,0)], 'robot 2': [(1,1)]}
+                # central_node.vg.display_robot_instructions(frame, instructions_1, robots)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
