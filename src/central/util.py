@@ -44,7 +44,23 @@ class UtilityFunctions:
             UtilityFunctions.BOTTOM_LEFT: rectangles[2],
             UtilityFunctions.BOTTOM_RIGHT: rectangles[3],
         }
-        return corners
+
+        points = sorted(points, key=lambda p: (p[1], p[0]))
+        if points[0][0] > points[1][0]:
+            points[0], points[1] = points[1], points[0]
+        if points[2][0] > points[3][0]:
+            points[2], points[3] = points[3], points[2]
+            
+        src_points = np.array(points, dtype=np.float32)
+        dst_points = np.array([
+            [0, 0],
+            [frame.shape[1], 0],
+            [0, frame.shape[0]],
+            [frame.shape[1], frame.shape[0]]
+        ], dtype=np.float32)
+
+        H, _ = cv.findHomography(src_points, dst_points)
+        return corners, H
     
     
     @staticmethod

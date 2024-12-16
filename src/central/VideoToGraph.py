@@ -75,16 +75,23 @@ class VideoToGraph:
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
         while self.running:
+
             # Capture frame-by-frame
             ret, frame = self.cap.read()
+
             # if frame is read correctly ret is True
             if not ret:
                 print("Can't receive frame (stream end?). Exiting ...")
                 self.running = False
                 break
-            
+
             if self.corners == {}:
-                self.corners = uf.find_corners_feed(self.cap)
+                self.corners, self.H = uf.find_corners_feed(self.cap)
+
+            # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
+
+            
+                
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             if update:
