@@ -227,6 +227,7 @@ class CentralNode:
             FORWARD_CMD = "F"
             TURN_LEFT_CMD = "L"
             TURN_RIGHT_CMD = "R"
+            instructions_set = []
             for robot_id, rschedule in enumerate(robot_schedules):
                 instructions = []
                 prev_direction = None
@@ -285,10 +286,13 @@ class CentralNode:
                     elif next_action == "DROPOFF":
                         instructions.append(DROPOFF_CMD)
 
+                instructions_set.append(instructions)
                 instructions_str = ">".join(instructions)
                 print(f"Robot {robot_id} Instruction string:")
                 print(instructions_str)
-            return instructions
+            for robot_id, instructions in enumerate(instructions_set):
+                self.send_instructions(robot_id, instructions)
+            return instructions_set
 
     def direction_to_turn(self, src, dest):
         if dest[1] == src[1] and dest[0] < src[0]:
@@ -308,12 +312,20 @@ class CentralNode:
         elif dest[0] < src[0] and dest[1] < src[1]:
             return 'NW'
 
-    def send_instructions(self, instructions):
-        for robot, instruction in instructions:
+    def send_instructions(self, robot, instructions):
+        for instruction in instructions:
             self.send_instruction(robot, instruction)
         pass
 
-    def send_instruction(self, robot, instruction):
+    def send_instruction(self, robot, instruction, duration=None):
+        if instruction == 'F':
+            self.send_command(duration)
+        elif instruction == 'L':
+            self.motor_controller.turn_left(duration)
+        elif instruction == 'R':
+            self.motor_controller.turn_right(duration)
+        elif instruction == 'P' or command == 'D':
+            self.motor_controller.spin()
         print(f"sent to robot: {robot}, instruction: {instruction}")
         return
         # self.bluetooth_client.send(robot, instruction)

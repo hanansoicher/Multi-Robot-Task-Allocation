@@ -25,12 +25,10 @@ class VideoToGraph:
         self.square_height_cm = height if metric else height * 2.54
         self.square_pixel_length = 0
         self.square_pixel_height = 0
-        self.pixel_center_block_height_px  = 0
-        self.pixel_center_block_length_px = 0
-        self.pixel_diagonal_block_length_px = 0 
         self.graph_x_nodes = 0
         self.graph_y_nodes = 0
         self.block_size_cm = 3.5
+        self.pixel_conversion = []
         self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
@@ -125,17 +123,7 @@ class VideoToGraph:
             if path:
                 overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
                 self.paths['robot 1'] = path
-                # gr.print_path_weights(self.graph, path)
-
-            top_left = (0, 0)
-            top_right = (self.graph_x_nodes - 1, 0)
-            bottom_left = (0, self.graph_y_nodes - 1)
-            bottom_right = (self.graph_x_nodes - 1, self.graph_y_nodes - 1)
-
-            print("length Height Diagonal") 
-            gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, top_right, gr.heuristic))
-            gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, bottom_left, gr.heuristic))
-            gr.print_path_weights(self.graph, gr.safe_astar_path(self.graph, top_left, bottom_right, gr.heuristic))
+                gr.print_path_weights(self.graph, path)
         return no_robots, overlay_image
     
     def convert_image_to_graph(self, image, refresh_graph):
@@ -148,16 +136,15 @@ class VideoToGraph:
                 gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
                 self.refresh_matrix(corners)
                 gr.set_node_positions(self.graph, self.matrix)
-                self.compute_pixel_dimensions()
                 self.set_robot_goals({
                     'robot 1': (self.graph_x_nodes - 1, self.graph_y_nodes - 4),
                     'robot 2': (self.graph_x_nodes - 3, self.graph_y_nodes - 12),          
                     })
-            # self.detect_static_obstacles(image, self.graph)
+            self.detect_static_obstacles(image, self.graph)
             self.detect_objects(image)
+            self.compute_pixel_conversion()
 
-            gr.adjust_graph_weights(self.graph, self.pixel_center_block_length_px, self.pixel_center_block_height_px, 
-                                    self.pixel_diagonal_block_length_px, self.block_size_cm)        
+            gr.adjust_graph_weights(self.graph, self.pixel_conversion)        
 
         return self.graph
     
@@ -216,43 +203,11 @@ class VideoToGraph:
         except:
             print("Couldn't set the dimensions")    
 
-    def compute_pixel_dimensions(self):
+    def compute_pixel_conversion(self):
         try:
-            center_coord_x = (int(self.graph_x_nodes/2))
-            center_coord_y = (int(self.graph_y_nodes/2))
-            center_node = self.graph.nodes[center_coord_x,center_coord_y][gr.PIXEL_POS]
-
-            north_node = self.graph.nodes[center_coord_x,center_coord_y + 1][gr.PIXEL_POS]
-            south_node = self.graph.nodes[center_coord_x,center_coord_y - 1][gr.PIXEL_POS]
-            east_node = self.graph.nodes[center_coord_x + 1,center_coord_y][gr.PIXEL_POS]
-            west_node = self.graph.nodes[center_coord_x - 1 ,center_coord_y][gr.PIXEL_POS]
-
-            north_east_node = self.graph.nodes[center_coord_x + 1,center_coord_y + 1][gr.PIXEL_POS]
-            south_east_node = self.graph.nodes[center_coord_x + 1,center_coord_y - 1][gr.PIXEL_POS]
-            south_west_node = self.graph.nodes[center_coord_x - 1,center_coord_y - 1][gr.PIXEL_POS]
-            north_west_node = self.graph.nodes[center_coord_x - 1,center_coord_y + 1][gr.PIXEL_POS]
-
-
-            # Compute the pixel distance between the center node and its neighbors
-            self.pixel_center_block_height_px = (uf.euclidean_distance(center_node, north_node) + uf.euclidean_distance(center_node, south_node)) / 2
-            self.pixel_center_block_length_px = (uf.euclidean_distance(center_node, east_node) + uf.euclidean_distance(center_node, west_node)) / 2
-            self.pixel_diagonal_block_length_px = (uf.euclidean_distance(center_node, north_east_node) 
-                                                   + uf.euclidean_distance(center_node, south_east_node) 
-                                                   + uf.euclidean_distance(center_node, south_west_node) 
-                                                   + uf.euclidean_distance(center_node, north_west_node)) / 4
-            
-            top_left = (0, 0)
-            top_right = (self.graph_x_nodes - 1, 0)
-            bottom_left = (0, self.graph_y_nodes - 1)
-            bottom_right = (self.graph_x_nodes - 1, self.graph_y_nodes - 1)
-
-            length = gr.adjust_distance_based_on_correction(self.graph, top_left, top_right, 0, self.square_pixel_length, 0, self.square_length_cm)
-            height = gr.adjust_distance_based_on_correction(self.graph, top_left, bottom_left, self.square_pixel_height, 0, 0, self.square_height_cm)
-            diagonal = gr.adjust_distance_based_on_correction(self.graph, top_left, bottom_right, 0, 0, (self.square_pixel_height**2 + self.square_pixel_length**2)**0.5,(self.square_length_cm**2 + self.square_height_cm**2)**0.5)
-
-            
-            print(f"Length: {length} cm, Height: {height} cm, Diagonal: {diagonal} cm")
-
+            self.pixel_conversion.append(self.square_length_cm / self.square_pixel_length)
+            self.pixel_conversion.append(self.square_height_cm / self.square_pixel_height)
+            self.pixel_conversion.append((self.square_length_cm**2 + self.square_height_cm**2) ** 0.5 / (self.square_pixel_length**2 + self.square_pixel_height**2) ** 0.5)
         except Exception as e:
             print(e)
             print("Couldn't compute pixel dimensions")
