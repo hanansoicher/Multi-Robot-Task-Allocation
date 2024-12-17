@@ -160,8 +160,8 @@ class VideoToGraph:
                 self.running = False
                 break
 
-            if self.corners == {}:
-                self.corners, self.H = uf.find_corners_feed(self.cap)
+            # if self.corners == {}:
+#                 self.corners, self.H = uf.find_corners_feed(self.cap)
 
             # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
@@ -188,6 +188,7 @@ class VideoToGraph:
             
             if self.display_deadline:
                 self.draw_deadline(overlay_image)            
+            
             
             self.draw_HUD(overlay_image)
 

@@ -20,7 +20,7 @@ async def main():
     web_cam_close = "img/video/webcam_red_close.mov"
     web_cam_further_angle = "img/video/webcam_red_further_angle.mov"
     web_cam_further_top = "img/video/webcam_red_further_top.mov"
-    web_cam_distance = "img/video/center_test.mov"
+    web_cam_distance = "img/video/contour_robots1.mov"
 
     # Read robots
     with open('devices.json', 'r') as f:
@@ -49,6 +49,7 @@ async def driver_code(video_input, robots):
 
     central_node.vg.initialize_tracker(central_node.vg.cap)
 
+    central_node.vg.overlay_update_frame_interval = 15
     last_time = time.time()
     try:
         while True:
