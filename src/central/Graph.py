@@ -196,7 +196,7 @@ class Graph(nx.Graph):
         if not nx.has_path(graph, start_node, goal_node):
             return None
 
-         path = nx.astar_path(graph, source=start_node, target=goal_node, 
+        path = nx.astar_path(graph, source=start_node, target=goal_node, 
                             weight= lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT],
                             heuristic=heuristic)
         # lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT]
@@ -239,9 +239,9 @@ class Graph(nx.Graph):
             pixel_dist = uf.euclidean_distance(graph.nodes[node1][Graph.PIXEL_POS], graph.nodes[node2][Graph.PIXEL_POS])
             total_weight.append(weight)
             pixel_distances.append(pixel_dist)
-        total = uf.kahan_sum(total_weight)
-        total_pixel_dist = uf.kahan_sum(pixel_distances)
-        print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
+        total = sum(total_weight)
+        total_pixel_dist = sum(pixel_distances)
+        # print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
 
         return total
 

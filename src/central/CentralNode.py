@@ -32,13 +32,13 @@ def main():
             "name": "robot 1",
             "address": "XX:XX:XX:XX:XX:XX",
             "write_uuid": 11111,
-            "START": (30, 2)
+            "START": (10, 2)
         },
         "robot 2": {
             "name": "robot 2",
             "address": "YY:YY:YY:YY:YY:YY",
             "write_uuid": 22222,
-            "START": (10, 2)
+            "START": (5, 2)
         }
     }
 
@@ -66,12 +66,16 @@ def driver_code(video_input, robots):
         print("Waiting for corners to be detected")
         time.sleep(1)
     print("Corners detected")
+    tracker = False
+    if tracker:
+        central_node.vg.initialize_tracker(central_node.vg.cap)
+    cv.destroyWindow("Frame")
 
-    central_node.vg.initialize_tracker(central_node.vg.cap)
-
-    central_node.vg.overlay_update_frame_interval = 15
+    central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
     try:
+
+
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
@@ -89,11 +93,7 @@ def driver_code(video_input, robots):
                 central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
 
             if cv.waitKey(1) == ord('t'):
-                central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
-                for qr_code in central_node.vg.tracked_qr_objects.keys():
-                    action_point_node = central_node.vg.get_nearest_node_to_actionpoint(qr_code)
-                    if action_point_node:
-                        print(f"Action point {qr_code}: {action_point_node}")
+                central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 10) + 1 
 
             if cv.waitKey(1) == ord('g'):
                 central_node.vg.display_grid = not central_node.vg.display_grid
@@ -112,7 +112,11 @@ def driver_code(video_input, robots):
                 # print(robots['robot 1']['START'])
                 if not solver_ran:
                     print("Running SMT Solver")
-                    solution = central_node.run_solver(robots)
+                    robots[uf.ROBOT_ONE]['START'] = gr.find_nearest_node(central_node.vg.graph, (int(pos1[0]), int(pos1[1])))
+                    robots[uf.ROBOT_TWO]['START'] = gr.find_nearest_node(central_node.vg.graph, (int(pos2[0]), int(pos2[1])))
+                    tasks = central_node.create_tasks(frame)
+                    solution = central_node.run_solver(robots, tasks)
+  
                     solver_ran = True
                     task_schedules = central_node.convert_solution_to_schedules(solution)
                     instructions = central_node.generate_point_to_point_movement_instructions(task_schedules)
@@ -174,7 +178,7 @@ class CentralNode:
     def init_bluetooth_module(self):
         pass
 
-    def run_solver(self, robots):
+    def run_solver(self, robots, tasks=None):
         # create and get the necessary input for mrta solver
         graph = self.vg.graph
         paths = self.vg.paths
@@ -183,15 +187,16 @@ class CentralNode:
             Robot(id='robot 1', start=robots['robot 1']['START']),
             Robot(id='robot 2', start=robots['robot 2']['START']),
         ]
-        tasks = [
-            Task(id=0, start=(11,1),  end=(15,2), deadline=1000),
-            Task(id=1, start=(2,2),  end=(15,1), deadline=1000),
-            Task(id=2, start=(30,4),  end=(7,1),  deadline=1000),
-            # Task(id=3, start=(30,4),  end=(16,1),  deadline=1000),
-            # Task(id=4, start=(30,4),  end=(16,3),  deadline=2000),
-            # Task(id=5, start=(3,2),  end=(9, 4), deadline=2000),
-            # Task(id=6, start=(7,9), end=(40,7),  deadline=2000)
-        ]
+        if tasks is None or len(tasks) == 0:
+            tasks = [
+                Task(id=0, start=(11,1),  end=(15,2), deadline=10000),
+                Task(id=1, start=(2,2),  end=(15,1), deadline=10000),
+                Task(id=2, start=(20,4),  end=(7,1),  deadline=10000),
+                # Task(id=3, start=(30,4),  end=(16,1),  deadline=1000),
+                # Task(id=4, start=(30,4),  end=(16,3),  deadline=2000),
+                # Task(id=5, start=(3,2),  end=(9, 4), deadline=2000),
+                # Task(id=6, start=(7,9), end=(40,7),  deadline=2000)
+            ]
         tasks_stream = [[tasks, 0]]
         self.agents = agents
         self.tasks = tasks
@@ -228,20 +233,19 @@ class CentralNode:
                     solver_graph[j][i] = 0
                 else:
                     try:
-                        temp_graph = graph.copy()
                         
-                        path = gr.safe_astar_path(temp_graph, self.action_points[i], self.action_points[j], gr.heuristic)
+                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic)
                         if path is None:
                             continue
-                        # print(path)
+                        print(path)
                         turning_cost = 0
-                        movement_cost = gr.get_path_weights(temp_graph, path)
+                        movement_cost = gr.print_path_weights(graph, path)*MOVE_DURATION_MS//self.vg.block_size_cm
                         # print(f"Movement cost: {movement_cost}")
                         # Add turning costs to edges along path
                         prev_direction = 0 # North
                         for src, dest in zip(path[:-1], path[1:]):
-                            src_pos = temp_graph.nodes[src].get('pos')
-                            dest_pos = temp_graph.nodes[dest].get('pos')
+                            src_pos = graph.nodes[src].get(gr.GRID_POS)
+                            dest_pos = graph.nodes[dest].get(gr.GRID_POS)
                             
                             # Calculate direction vector
                             dx = dest_pos[0] - src_pos[0]
@@ -365,14 +369,14 @@ class CentralNode:
                     if i > 0 and next_action != "WAIT":
                         movement_start = True
                     # Compute full path between src and dest
-                    path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get('pos'), self.vg.graph.nodes[dest].get('pos'), gr.heuristic)
+                    path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get(gr.GRID_POS), self.vg.graph.nodes[dest].get(gr.GRID_POS), gr.heuristic)
                     print(path)
                     if self.vg.paths.get(robot_id) is None:
                         self.vg.paths[robot_id] = []
                     self.vg.paths[robot_id].append(path)
 
-                    if movement_start == False and gr.get_path_weights(self.vg.graph, path) < rschedule[i+1]['time'] - rschedule[i]['time']:
-                        instructions.append(f"{WAIT_CMD}:{int(rschedule[i+1]['time'] - rschedule[i]['time'] - gr.get_path_weights(self.vg.graph, path))}")
+                    if movement_start == False and gr.print_path_weights(self.vg.graph, path) < rschedule[i+1]['time'] - rschedule[i]['time']:
+                        instructions.append(f"{WAIT_CMD}:{int(rschedule[i+1]['time'] - rschedule[i]['time'] - gr.print_path_weights(self.vg.graph, path))}")
                     # print(path)
 
                     if len(path) > 1:
@@ -394,11 +398,11 @@ class CentralNode:
                                 if angle > 180:
                                     angle = 360 - angle
 
-                                duration = int(abs(angle) / 45 * TURN_DURATION_MS)
+                                angle = int(abs(angle))
                                 if angle > 0:
-                                    instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
+                                    instructions.append(f"{TURN_RIGHT_CMD}:{angle}")
                                 elif angle < 0:
-                                    instructions.append(f"{TURN_LEFT_CMD}:{duration}")
+                                    instructions.append(f"{TURN_LEFT_CMD}:{angle}")
 
                             j = 1
                             while (step + j < len(path)-1):
@@ -407,7 +411,7 @@ class CentralNode:
                                 else:
                                     break
 
-                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION_MS * j}")
+                            instructions.append(f"{FORWARD_CMD}:{j}")
                             step += j
                             prev_direction = direction
 
@@ -449,8 +453,8 @@ class CentralNode:
         
         for instruction in instruction_set:
             if ':' in instruction:
-                cmd, duration = instruction.split(':')
-                duration = int(duration)
+                cmd, arg = instruction.split(':')
+                arg = int(arg)
             else:
                 cmd = instruction
                 duration = TURN_DURATION_MS*8  # 360 degree spin for P/D
@@ -459,7 +463,7 @@ class CentralNode:
                 # Calculate new position based on direction and duration
                 move_vector = direction_vectors[current_direction]
                 
-                distance = duration / MOVE_DURATION_MS
+                distance = arg
                 
                 if move_vector[0] != 0 and move_vector[1] != 0:
                     distance = distance * DIAGONAL_MULTIPLIER
@@ -468,10 +472,10 @@ class CentralNode:
                 dy = move_vector[1] * distance
 
                 current_pos = (current_pos[0] + dx, current_pos[1] + dy)
-                current_time += duration
+                current_time += distance
                 
             elif cmd in ['L', 'R']: # Position stays the same, turn in place
-                num_turns = duration // TURN_DURATION_MS
+                num_turns = arg // TURN_DURATION_MS
                 
                 current_idx = directions.index(current_direction)
                 
@@ -481,14 +485,14 @@ class CentralNode:
                     new_idx = (current_idx + num_turns) % 8
                     
                 current_direction = directions[new_idx]
-                current_time += duration
+                current_time += arg
                     
             elif cmd in ['P', 'D']:
                 # Pickup/Dropoff adds time but doesn't change position
                 current_time += TURN_DURATION_MS*8  # Duration for 360 degree spin
             elif cmd == 'W':
                 # Initial wait time
-                current_time += duration
+                current_time += arg
             schedule.append({
                 'time': current_time,
                 'location': current_pos
@@ -515,7 +519,7 @@ class CentralNode:
                     continue  # No time overlap
                     
                 # Check positions at each time step
-                for step in range(t_end - t_start):
+                for step in range(int(t_end - t_start)):
                     t = t_start + (t_end - t_start) * (step / (t_end - t_start))
                     
                     # Interpolate positions of both robots at time t
@@ -622,20 +626,20 @@ class CentralNode:
             robot_id = "robot 1" if i == 0 else "robot 2"
             for instruction in instructions:
                 if ':' in instruction:
-                    command, duration = instruction.split(':')
-                    duration = int(duration)
+                    command, arg = instruction.split(':')
+                    arg = int(arg)
                 else:
                     command = instruction
                 # if command == 'F':
-                #     self.robots[robot_id].move(duration)
+                #     self.robots[robot_id].move(arg)
                 # elif command == 'L':
-                #     self.robots[robot_id].turn(duration)
+                #     self.robots[robot_id].turn(arg)
                 # elif command == 'R':
-                #     self.robots[robot_id].turn(duration)
+                #     self.robots[robot_id].turn(arg)
                 # elif command == 'P' or command == 'D':
-                #     self.robots[robot_id].turn(TURN_DURATION_MS*8)  # 360 degree spin
+                #     self.robots[robot_id].turn(360)  # 360 degree spin
                 # elif command == 'W':
-                #     self.robots[robot_id].wait(duration)
+                #     self.robots[robot_id].wait(arg)
                 print(f"Sent instruction {instruction} to {robot_id}")
             print(f"Finished sending instructions to {robot_id}")
 
@@ -661,6 +665,14 @@ class CentralNode:
         # ensure that movement is calibrated
         # move forward, orientation etc
         return 1
+    
+
+    def create_tasks(self, frame):
+        action_points = self.vg.get_actions_points(frame)
+        tasks = []
+        for i, (pickup, dropoff, deadline) in enumerate(action_points):
+            tasks.append(Task(id=i, start=pickup, end=dropoff, deadline=deadline))
+        return tasks
 
     def tear_down(self):
         # Stop the thread and release resources 

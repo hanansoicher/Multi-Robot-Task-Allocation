@@ -43,14 +43,21 @@ class VideoToGraph:
             tracker = cv.TrackerKCF.create()  # Change tracker type if needed
             tracker.init(frame, bbox)
             self.robot_trackers.append(tracker)
-            
-            # Ask user if they want to select more bounding boxes
             print("Press 'y' to select another object or any other key to continue")
+            try: 
+                if self.tracked_robots[uf.ROBOT_ONE]:
+                    self.tracked_robots[uf.ROBOT_TWO] = uf.compute_center(bbox)
+                else:
+                    self.tracked_robots[uf.ROBOT_ONE] = uf.compute_center(bbox)
+            except:
+                self.tracked_robots[uf.ROBOT_ONE] = uf.compute_center(bbox)
             key = cv.waitKey(0)
             if key != ord('y'):
                 break
-
             cv.destroyWindow("Frame")
+        self.is_tracking = True
+
+
 
     #initialize
     def __init__(self, width, length, video_file, robots, metric = True):
@@ -83,12 +90,13 @@ class VideoToGraph:
         # shortest paths from robot to goal
         self.paths = {}
         self.robot_goals = {}
-        self.deadline_threshold = 2000
+        self.deadline_threshold_multiplier = 1
 
         # QR Code tracking 
         self.qcd = None
         self.overlapping_nodes = set()
         self.tracked_qr_objects = {}
+        self.action_points = {}
 
         # Robot tracking
         self.tracked_robots = {}
@@ -96,6 +104,8 @@ class VideoToGraph:
         self.robots = robots
         self.robot_trackers = []
         self.robot_bounding_boxes = []
+        self.is_tracking = False
+
 
         # relay processed video via thread to avoid creating a blocking call
         self.frame_queue = queue.Queue(maxsize=1)
@@ -124,21 +134,27 @@ class VideoToGraph:
         cv.destroyAllWindows()
 
     def get_robot_positions(self, robot):
-        bbox, center = self.tracked_robots[robot]
+        try:
+            bbox, center = self.tracked_robots[robot] 
+        except:
+            return (-1,-1)         
         return center
     
-    def get_action_point(self, action_point):
-        action_point = self.tracked_qr_objects[action_point] if self.tracked_qr_objects.__contains__(action_point) else None
-        return action_point
+    def get_actions_points(self, frame):
+        self.detect_actions_points(frame)
+        return self.action_points
     
-    def get_nearest_node_to_actionpoint(self, action_point):
-    
-        action_point = self.get_action_point(action_point)
-        if action_point is None:
-            return None
-        print(action_point)
-        center = uf.find_center_of_rectangle(action_point)
-        return gr.find_nearest_node(self.graph, center)
+    def detect_actions_points(self, frame):
+        self.detect_qr_objects(frame)
+        #     Task(id=0, start=(11,1),  end=(15,2), deadline=1000),
+        for _, key in enumerate(self.tracked_qr_objects.keys()):
+            i = int(key.split("_")[1])
+            i = i if i != 0 else 1
+            drop_point = uf.find_center_of_rectangle(self.tracked_qr_objects[key])
+            drop_point_node = gr.find_nearest_node(self.graph, drop_point)
+            start_point = (5+i,self.graph_y_nodes//i)
+            self.action_points[key] = (start_point, drop_point_node, 43+i)
+
 
     # Create and update graph from the video input
     def start_environment(self):
@@ -164,14 +180,17 @@ class VideoToGraph:
             overlay_image = frame.copy()
             if update:
                 self.convert_image_to_graph(overlay_image, refresh_graph)
-                self.detect_qr_objects(overlay_image)
                 refresh_graph = False
+                if self.is_tracking:
+                    self.detect_qr_objects(frame)
+                    self.update_robot_positions_from_trackers(frame)
+                    self.detect_actions_points(frame)
+                    
 
-            self.update_robot_positions_from_trackers(frame)
             for i in range(len(self.robot_trackers)):
                 self.draw_robot_position(overlay_image, i)
 
-            # self.detect_robots(overlay_image, self.robots_colors)
+            self.detect_robots(overlay_image, self.robots_colors)
             if self.display_grid:
                 self.draw_grid(overlay_image, self.graph)
 
@@ -318,15 +337,9 @@ class VideoToGraph:
         for i, tracker in enumerate(self.robot_trackers):
             ok, bbox = tracker.update(image)
             if ok:
-                # Draw bounding box
                 # Tracking success
-                (x, y, w, h) = [int(v) for v in bbox]
-                top_left = (x, y)
-                bottom_right = (x + w, y + h)
-                center_x = (top_left[0] + bottom_right[0]) // 2 
-                center_y = (top_left[1] + bottom_right[1]) // 2 
-                center = (center_x, center_y)
-                self.update_robot_position((bbox,center), i)
+                (bbox,center) = uf.compute_center(bbox)
+                self.update_robot_position((bbox, center), f"robot {i+1}")
             else:
                 # Tracking failure
                 cv.putText(image, f"Tracking failed for Node {i}", (100, 50 + i * 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -346,17 +359,19 @@ class VideoToGraph:
                     if center is not None:
                         cx, cy,_ = center    
             robots[robot] = (largest_contour, (cx, cy))
-        
+        color_tracker = True
         for robot, (contours, (cx,cy)) in robots.items():
             self.update_robot_position((contours, (cx,cy)), robot)
-            image = self.draw_robot_position(image, robot)        
+            image = self.draw_robot_position(image, robot, color_tracker)        
 
-    def draw_robot_position(self, image, robot, outline_color = uf.GREEN,center_color = uf.RED):
+    def draw_robot_position(self, image, robot, color_tracker = False, outline_color = uf.GREEN,center_color = uf.RED):
         if robot in self.tracked_robots.keys():
             (bbox, center) = self.tracked_robots[robot]
-            # cv.drawContours(image, [contours], -1, outline_color, 2)
-            (x, y, w, h) = [int(v) for v in bbox]
-            cv.rectangle(image, (x, y), (x + w, y + h), outline_color, 2)
+            if color_tracker:
+                cv.drawContours(image, [bbox], -1, outline_color, 2)
+            else: 
+                (x, y, w, h) = [int(v) for v in bbox]
+                cv.rectangle(image, (x, y), (x + w, y + h), outline_color, 2)
             cv.circle(image, center, 7, center_color, -1)
             self.outline_text(image, f"robot {robot}", (center[0]-65, center[1]-20), color=uf.GREEN, scale=1.2, outline=4)
         return image
@@ -371,7 +386,6 @@ class VideoToGraph:
                     self.tracked_robots[robot] = bbox
             except:
                 self.tracked_robots[robot] = bbox
-
 
 
     def detect_qr_objects(self, image):
@@ -391,10 +405,11 @@ class VideoToGraph:
         for key in self.tracked_qr_objects.keys():
             try:
                 if key[0] == "a":
-                    qr_code_points = self.tracked_qr_objects[key].astype(int)
-                    overlapping_nodes = self.check_qr_code_overlap(self.graph, qr_code_points)
-                    gr.update_graph_based_on_qr_code(self.graph, overlapping_nodes, self.overlapping_nodes)
-                    self.overlapping_nodes = overlapping_nodes
+                    pass
+                    # qr_code_points = self.tracked_qr_objects[key].astype(int)
+                    # overlapping_nodes = self.check_qr_code_overlap(self.graph, qr_code_points)
+                    # gr.update_graph_based_on_qr_code(self.graph, overlapping_nodes, self.overlapping_nodes)
+                    # self.overlapping_nodes = overlapping_nodes
             except:
                 print(f"Invalid QR code detected: {key}")
     
@@ -443,7 +458,7 @@ class VideoToGraph:
     def draw_deadline(self, overlay_image):
         if self.display_deadline:
             pos_x, pos_y = self.get_corner_position_for_text(multiplier=6)
-            self.outline_text(overlay_image, f"Deadline threshold: {self.deadline_threshold}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
+            self.outline_text(overlay_image, f"Deadline threshold: {self.deadline_threshold_multiplier}", (pos_x, pos_y), color=uf.GREEN, scale=1.2, outline=4)
     
     def draw_HUD(self, overlay_image):
         pos_x, pos_y = self.get_corner_position_for_text(multiplier=20)
