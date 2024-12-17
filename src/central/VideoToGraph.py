@@ -1,5 +1,4 @@
-import os
-os.environ["OPENCV_LOG_LEVEL"]="FATAL"
+
 import cv2 as cv
 import networkx as nx
 import numpy as np
@@ -7,7 +6,7 @@ import threading
 import queue
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
-import asyncio
+
 
 
 def main():
@@ -124,14 +123,9 @@ class VideoToGraph:
             print("Thread couldn't be joined")
         cv.destroyAllWindows()
 
-    async def get_robot_positions(self, robot):
-        future = asyncio.Future()
-        try:
-            bbox, center = self.tracked_robots[robot]
-            future.set_result(center)
-        except:
-            future.set_result(None)
-        return await future
+    def get_robot_positions(self, robot):
+        bbox, center = self.tracked_robots[robot]
+        return center
     
     def get_action_point(self, action_point):
         action_point = self.tracked_qr_objects[action_point] if self.tracked_qr_objects.__contains__(action_point) else None
