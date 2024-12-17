@@ -46,13 +46,10 @@ def main():
     # with open('devices.json', 'r') as f:
     #     robots = json.load(f)['devices']
 
-    video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-
     e = os.environ["VIDEO_FEED"]
     print("Searching for env", e)
     video_feed = [int(os.getenv('VIDEO_FEED', 0))]
-    video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
-    video_feed = [web_cam_close]
+    video_feed = [web_cam_distance]
     for video_input in video_feed:
         driver_code(video_input, robots)
         print("Video feed completed: ", video_input)
@@ -160,7 +157,6 @@ class CentralNode:
     HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
     LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
-        self.init_robots(robots) # ensure connection is established
         self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
         self.robot_data = robots
 

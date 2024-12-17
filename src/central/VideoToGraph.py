@@ -238,7 +238,7 @@ class VideoToGraph:
         return self.graph
     
     def refresh_matrix(self, corners):
-        matrix = uf.compute_affine_transformation(corners, self.grid_width, self.grid_height)
+        matrix = uf.compute_affine_transformation(corners, self.graph_x_nodes, self.graph_y_nodes)
         self.matrix = matrix
 
     def draw_grid(self, image, graph):
@@ -280,14 +280,14 @@ class VideoToGraph:
     def set_dimensions(self, corners):
         try:
             # Compute grid dimensions based on the block size and image size
-            image_width_px = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
-            image_height_px = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
+            self.square_pixel_length = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
+            self.square_pixel_height = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
 
-            pixel_block_height_px  = (self.block_size_cm / self.maze_height) * image_height_px
-            pixel_block_width_px = (self.block_size_cm / self.maze_length) * image_width_px
+            pixel_block_height_px  = (self.block_size_cm / self.square_height_cm) * self.square_pixel_height
+            pixel_block_length_px = (self.block_size_cm / self.square_length_cm) * self.square_pixel_length
 
-            self.grid_width = int(image_width_px / pixel_block_width_px)
-            self.grid_height = int(image_height_px / pixel_block_height_px)     
+            self.graph_x_nodes = int(self.square_pixel_length / pixel_block_length_px)
+            self.graph_y_nodes = int(self.square_pixel_height / pixel_block_height_px)  
         except:
             print("Couldn't set the dimensions")    
 

@@ -8,7 +8,7 @@ class Graph(nx.Graph):
 
     NEAR_OBSTACLE = "is_near_obstacle"
     PIXEL_POS = "pixel_pos"
-    GRID_POS = "pos"
+    GRID_POS = "grid_pos"
     INF = float('inf')
     EDGE_WEIGHT = "distance_in_cm"
 
@@ -68,19 +68,53 @@ class Graph(nx.Graph):
                     graph[node][neighbor][Graph.EDGE_WEIGHT] = Graph.INF
                     graph[neighbor][node][Graph.EDGE_WEIGHT] = Graph.INF 
 
-    def adjust_graph_weights(graph):
+    DIAGONAL = "diagonal"
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+
+    def adjust_graph_weights(graph, conversion):
         for edge in graph.edges():
             node_a, node_b = edge
-            if Graph.is_node_near_obstacle(graph,node_a,node_b):
+            if Graph.is_node_near_obstacle(graph, node_a, node_b):
                 graph.edges[node_a, node_b][Graph.EDGE_WEIGHT] = Graph.INF
                 graph.edges[node_b, node_a][Graph.EDGE_WEIGHT] = Graph.INF
             else:
-                node_a_x, node_a_y, _ = graph.nodes[node_a][Graph.PIXEL_POS]
-                node_b_x, node_b_y, _ = graph.nodes[node_b][Graph.PIXEL_POS]
-                distance = uf.euclidean_distance((node_a_x, node_a_y), (node_b_x, node_b_y))
-                graph.edges[node_a, node_b][Graph.EDGE_WEIGHT] = distance
-                graph.edges[node_b, node_a][Graph.EDGE_WEIGHT] = distance
+                distance_in_cm = Graph.adjust_distance_based_on_correction(graph, node_a, node_b, conversion)
+                graph.edges[node_a, node_b][Graph.EDGE_WEIGHT] = distance_in_cm
+                graph.edges[node_b, node_a][Graph.EDGE_WEIGHT] = distance_in_cm
         return graph
+    
+    @staticmethod
+    def adjust_distance_based_on_correction(graph, node_a, node_b, conversion):
+            node_a_x, node_a_y, _ = graph.nodes[node_a][Graph.PIXEL_POS]
+            node_b_x, node_b_y, _ = graph.nodes[node_b][Graph.PIXEL_POS]
+            pixel_distance = uf.euclidean_distance((node_a_x,node_a_y), (node_b_x, node_b_y))
+
+            # adjust the weight based on direction
+            distance_in_cm = float('inf')
+            direction = Graph.direction(node_a, node_b)
+            if direction == Graph.DIAGONAL:
+                distance_in_cm = pixel_distance * conversion[2] 
+            
+            elif direction == Graph.HORIZONTAL:
+                distance_in_cm = pixel_distance * conversion[0]
+
+            elif direction == Graph.VERTICAL: 
+                distance_in_cm = pixel_distance * conversion[1]
+            return distance_in_cm
+
+    @staticmethod
+    def direction(node_a, node_b):
+        x1, y1 = node_a
+        x2, y2 = node_b
+        if (x1 < x2 or x2 > x1) and (y1 < y2 or y2 > y1):
+            return Graph.DIAGONAL
+        if (x1 < x2 or x2 < x1) and y1 == y2:
+            return Graph.HORIZONTAL
+        if (x1 == x2) and (y1 < y2 or y2 < y1):
+            return Graph.VERTICAL
+        else:
+            return None
         
     def adjust_distance_based_on_correction_pixel(graph, pixel_pos_a, pixel_pos_b, conversion):
         # Extract real-world coordinate
@@ -162,8 +196,8 @@ class Graph(nx.Graph):
         if not nx.has_path(graph, start_node, goal_node):
             return None
 
-        path = nx.astar_path(graph, source=start_node, target=goal_node, 
-                            weight= "weight",
+         path = nx.astar_path(graph, source=start_node, target=goal_node, 
+                            weight= lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT],
                             heuristic=heuristic)
         # lambda u, v, d: Graph.INF if d[Graph.EDGE_WEIGHT] == Graph.INF else d[Graph.EDGE_WEIGHT]
         # Check if any edge in the path has infinite weight
@@ -196,24 +230,23 @@ class Graph(nx.Graph):
 
     @staticmethod
     def print_path_weights(graph, path):
-        total_weight = 0
+        total_weight = []
+        pixel_distances = []
         for i in range(len(path) - 1):
             node1 = path[i]
             node2 = path[i + 1]
-            weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None)  
-            total_weight += weight if weight is not None else 0
-            #print(f"Edge {node1} -> {node2}: weight = {weight}")
-        print(f"Total path weight: {total_weight}")
-        return total_weight
+            weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None) 
+            pixel_dist = uf.euclidean_distance(graph.nodes[node1][Graph.PIXEL_POS], graph.nodes[node2][Graph.PIXEL_POS])
+            total_weight.append(weight)
+            pixel_distances.append(pixel_dist)
+        total = uf.kahan_sum(total_weight)
+        total_pixel_dist = uf.kahan_sum(pixel_distances)
+        print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
 
-    def get_path_weights(graph, path):
-        total_weight = 0
-        for i in range(len(path) - 1):
-            node1 = path[i]
-            node2 = path[i + 1]
-            weight = graph[node1][node2].get(Graph.EDGE_WEIGHT, None)  
-            total_weight += weight if weight is not None else 0
-        return total_weight
+        return total
+
+    
+
 
     @staticmethod
     def heuristic(node, goal):
@@ -236,6 +269,7 @@ class Graph(nx.Graph):
         for i in range(len(path) - 1):
             node_a = path[i]
             node_b = path[i + 1]
+            
             pos_a = graph.nodes[node_a][Graph.PIXEL_POS]
             pos_b = graph.nodes[node_b][Graph.PIXEL_POS]
 
