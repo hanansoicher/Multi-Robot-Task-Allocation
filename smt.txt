@@ -1,0 +1,17 @@
+agt_0_cap_0 = 0
+agt_0_cap_1 = 1
+agt_0_cap_2 = 0
+agt_0_act_0 = 0
+agt_0_act_1 = 1
+agt_0_act_2 = 2
+set0_task_0_start = 10001
+set0_task_0_drop = 20002
+set0_task_0_agent = 0
+Solution VERIFIED! Took 0.000s
+Model has been verified.
+ACTIONS: [(0, 3)]
+RESULTS: [['sat']]
+SOLVE_TIMES: [[0.0028810501098632812]]
+TOTAL_SOLVE_TIME: 0.0028810501098632812
+FOUND SOLUTION {'agt': [{'t': [0, 10001, 20002], 'c': [0, 1, 0], 'id': [0, 1, 2]}], 'ts': [[10001]], 'td': [[20002]], 't2a': [[0]]}
+{'agt': [{'t': [0, 10001, 20002], 'c': [0, 1, 0], 'id': [0, 1, 2]}], 'ts': [[10001]], 'td': [[20002]], 't2a': [[0]]}

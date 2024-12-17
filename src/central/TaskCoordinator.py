@@ -131,58 +131,6 @@ class TaskCoordinator:
         print(f"\nSolver Graph (Travel times Between Action Points): \n {solver_graph}")
         return solver_graph.tolist()
 
-    def convert_solution_to_schedules(self, solution):
-        num_robots = len(solution['agt'])
-        robot_schedules = []
-        
-        for robot_id in range(num_robots):
-            schedule = []
-            agent_data = solution['agt'][robot_id]
-
-            for i in range(len(agent_data['t'])):
-                time = agent_data['t'][i]
-                action_id = agent_data['id'][i]
-
-                location = None
-                action_type = None
-                task_num = None
-
-                if action_id < num_robots:
-                    # This is the agent's home/start location
-                    location = self.action_points[action_id]
-                    action_type = "WAIT"
-                else:
-                    # Task-related action
-                    task_idx = (action_id - num_robots) // 2
-                    is_pickup = ((action_id - num_robots) % 2 == 0)
-                    if is_pickup:
-                        action_type = "PICKUP"
-                        location = self.action_points[self.tasks[task_idx].start]
-                    else:
-                        action_type = "DROPOFF"
-                        location = self.action_points[self.tasks[task_idx].end]
-                    task_num = task_idx
-
-                if location is not None and action_type is not None:
-                    schedule.append({
-                        'time': time,
-                        'location': location,
-                        'action': action_type,
-                        'task_id': task_num
-                    })
-            schedule.sort(key=lambda x: x['time'])
-            robot_schedules.append(schedule)
-
-        for robot_id, schedule in enumerate(robot_schedules):
-            print(f"\nRobot {robot_id} Plan:")
-            print("Time  | Location | Action  | Task")
-            print("-" * 40)
-            
-            for step in schedule:
-                task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
-                print(f"{step['time']:5d} | {step['location']:8d} | {step['action']:7s} | {task_str}") 
-        return robot_schedules
-
     def generate_point_to_point_movement_instructions(self, robot_schedules):
 
         MOVE_DURATION = 200  # time to move between neighboring intersections

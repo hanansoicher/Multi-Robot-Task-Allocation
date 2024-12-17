@@ -6,6 +6,11 @@ import queue
 from util import UtilityFunctions as uf
 from Graph import Graph as gr
 import asyncio
+import sys 
+import os 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from SMrTa.MRTASolver import MRTASolver, Robot
+from SMrTa.MRTASolver.objects import Task
 
 
 def main():
@@ -67,6 +72,7 @@ class VideoToGraph:
         self.display_HUD = False
 
         # Graph setup
+        self.done_smt = False
         self.square_length_cm = length if metric else length * 2.54
         self.square_height_cm = height if metric else height * 2.54
         self.square_pixel_length = 0
@@ -143,6 +149,109 @@ class VideoToGraph:
         center = uf.find_center_of_rectangle(action_point)
         return gr.find_nearest_node(self.graph, center)
 
+    def run_solver(self, actions, robots):
+        # create and get the necessary input for mrta solver
+        graph = self.graph
+        paths = self.paths
+
+        print("graph: ", graph)
+        print("paths: ", paths)
+        try:
+            gr.print_path_weights(graph, paths[uf.ROBOT_TWO])
+        except Exception as e:
+            print(e)
+
+        agents = []
+
+        for i, r in enumerate(robots):
+            agents.append(
+                Robot(id=i, start = r.get_location())
+            )
+        
+        # Insanely high number, 
+        deadline = 100000000
+        tasks = []
+
+        for i in range(1, len(actions) - 1):
+            tasks.append(
+                Task(id = i, 
+                     start=actions[i-1].get_location(),
+                     end=actions[i].get_location(),
+                     deadline=deadline
+                     )
+            )
+        
+        tasks.append(Task(
+            id = len(tasks),
+            start=actions[-1].get_location(),
+            end=actions[0].get_location(),
+            deadline=deadline
+        ))
+            
+
+        tasks_stream = [[tasks, 0]]
+        self.agents = agents
+        self.tasks = tasks
+
+        # Ensure elements are added as the last element
+        ap_set = []
+        for a in agents:
+            if a.start not in ap_set:
+                ap_set.append(a.start)
+        for t in tasks:
+            if t.start not in ap_set:
+                ap_set.append(t.start)
+            if t.end not in ap_set:
+                ap_set.append(t.end)
+
+        self.action_points = ap_set
+        num_aps = len(self.action_points)
+        print("Action points: ", ap_set)
+        print("Action points: ", self.action_points)
+
+        # Remap agent and task start/end indices into the action_points indices [0, len(action_points)-1], leaving self.action_points containing the intersection id of the action point
+        for a in agents:
+            a.start = self.action_points.index(a.start)
+
+        for t in tasks:
+            t.start = self.action_points.index(t.start)
+            t.end = self.action_points.index(t.end)
+
+        solver_size = len(self.action_points)
+        solver_graph = np.ones((solver_size, solver_size)) * 10000
+        for i in range(solver_size):
+            for j in range(solver_size):
+                if i == j:
+                    solver_graph[i][j] = 0
+                else:
+                    try:
+                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic)
+                        print(path)
+                        solver_graph[i][j] = gr.print_path_weights(graph, path)
+                        solver_graph[j][i] = gr.print_path_weights(graph, path)
+                    except Exception as e:
+                        print(e)
+
+        solver = MRTASolver(
+            solver_name='z3',
+            theory='QF_UFBV',
+            agents=agents,
+            tasks_stream=tasks_stream,
+            room_graph=solver_graph.tolist(),
+            capacity=1,
+            num_aps=num_aps,
+            aps_list=[num_aps],
+            fidelity=1,
+        )
+
+        if solver.sol is None:
+            print("No solution found!")
+            return None
+        
+        print("FOUND SOLUTION", solver.sol)
+
+        return solver.sol
+
     # Create and update graph from the video input
     def start_environment(self):
         frame_count = 0  # Count frames to update the overlay after a set number of frames
@@ -163,7 +272,15 @@ class VideoToGraph:
                 self.corners, self.H = uf.find_corners_feed(self.cap)
             
             if self.tracked_robots == {}:
+                # Find all robots, actions, and grab the SMT solution
                 self.tracked_robots = uf.get_all_objects(self.H, self.cap)
+
+                actions = [ self.tracked_robots[a] for a in self.tracked_robots if a.startswith('action')]
+                robots = [ self.tracked_robots[a] for a in self.tracked_robots if a.startswith('robot')]
+
+                self.smt_solution = self.run_solver(actions, robots)
+                self.done_smt = True
+                print(self.smt_solution)
 
             # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False

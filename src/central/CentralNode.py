@@ -6,9 +6,6 @@ from util import UtilityFunctions as uf
 from Graph import Graph as gr
 import sys  
 import os 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from SMrTa.MRTASolver import MRTASolver, Robot
-from SMrTa.MRTASolver.objects import Task
 from client import Robot as IndividualNode
 import json 
 from dotenv import load_dotenv
@@ -58,9 +55,12 @@ def driver_code(video_input, robots):
 
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
+    
+    while not central_node.vg.done_smt:
+        print("Waiting for SMT to be detected")
+        time.sleep(1)
 
-    #
-    central_node.run_solver()
+
     # 
     try:
         
@@ -268,87 +268,6 @@ class CentralNode:
 
     def init_bluetooth_module(self):
         pass
-
-    def run_solver(self, actions, robots):
-        # create and get the necessary input for mrta solver
-        graph = self.vg.graph
-        paths = self.vg.paths
-
-        print("graph: ", graph)
-        print("paths: ", paths)
-        try:
-            gr.print_path_weights(graph, paths[uf.ROBOT_TWO])
-        except Exception as e:
-            print(e)
-
-        agents = []
-        tasks = [
-            Task(id=0, start=(11,1),  end=(15,2), deadline=10000),
-            Task(id=1, start=(2,2),  end=(15,1), deadline=10000),
-            Task(id=2, start=(33, 4),  end=(7,1),  deadline=15000),
-            # Task(id=3, start=(3,2),  end=(9, 4), deadline=3500),
-            # Task(id=4, start=(7,9), end=(7,7),  deadline=4000)
-        ]
-        tasks_stream = [[tasks, 0]]
-        self.agents = agents
-        self.tasks = tasks
-
-        # Ensure elements are added as the last element
-        ap_set = []
-        for a in agents:
-            if a.start not in ap_set:
-                ap_set.append(a.start)
-        for t in tasks:
-            if t.start not in ap_set:
-                ap_set.append(t.start)
-            if t.end not in ap_set:
-                ap_set.append(t.end)
-
-        self.action_points = ap_set
-        num_aps = len(self.action_points)
-        print("Action points: ", ap_set)
-        print("Action points: ", self.action_points)
-
-        # Remap agent and task start/end indices into the action_points indices [0, len(action_points)-1], leaving self.action_points containing the intersection id of the action point
-        for a in agents:
-            a.start = self.action_points.index(a.start)
-
-        for t in tasks:
-            t.start = self.action_points.index(t.start)
-            t.end = self.action_points.index(t.end)
-
-        solver_size = len(self.action_points)
-        solver_graph = np.ones((solver_size, solver_size)) * 10000
-        for i in range(solver_size):
-            for j in range(solver_size):
-                if i == j:
-                    solver_graph[i][j] = 0
-                else:
-                    try:
-                        path = gr.safe_astar_path(graph, self.action_points[i], self.action_points[j], gr.heuristic)
-                        print(path)
-                        solver_graph[i][j] = gr.print_path_weights(graph, path)
-                        solver_graph[j][i] = gr.print_path_weights(graph, path)
-                    except Exception as e:
-                        print(e)
-
-        solver = MRTASolver(
-            solver_name='z3',
-            theory='QF_UFBV',
-            agents=agents,
-            tasks_stream=tasks_stream,
-            room_graph=solver_graph.tolist(),
-            capacity=1,
-            num_aps=num_aps,
-            aps_list=[num_aps],
-            fidelity=1,
-        )
-
-        if solver.sol is None:
-            print("No solution found!")
-            return None
-
-        return solver.sol
 
     def convert_solution_to_schedules(self, solution):
         num_robots = len(solution['agt'])
