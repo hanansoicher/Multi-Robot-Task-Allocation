@@ -151,8 +151,8 @@ class UtilityFunctions:
     RED=(0,0,255)
     GREEN=(0,255,0)
     BLUE=(255,0,0)
-    ROBOT_ONE='robot 1'
-    ROBOT_TWO='robot 2'
+    ROBOT_ONE="robot 1"
+    ROBOT_TWO="robot 2"
     ROBOT_ONE_RANGE = ((100, 150, 0), (140, 255, 255))
     ROBOT_TWO_RANGE = ((4, 53, 50), (24, 93, 86))
     TEXT_DISTANCE = 65

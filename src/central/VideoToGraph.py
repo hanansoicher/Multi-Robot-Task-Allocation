@@ -15,6 +15,41 @@ def main():
     vg.tear_down()
 
 class VideoToGraph:
+    
+    def initialize_tracker(self, cap):
+
+        # Capture frame-by-frame
+        ret, frame = self.cap.read()
+
+        # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            cap.release()
+            cv.destroyAllWindows()
+            exit()
+
+        # Initialize a list for trackers and bounding boxes
+        self.robot_trackers = []
+        self.robot_bounding_boxes = []
+        
+        # Select multiple ROIs manually or programmatically
+        while True:
+            # Manually select bounding boxes
+            bbox = cv.selectROI("Frame", frame, fromCenter=False, showCrosshair=True)
+            self.robot_bounding_boxes.append(bbox)
+            
+            # Initialize a tracker for this bounding box
+            tracker = cv.TrackerKCF.create()  # Change tracker type if needed
+            tracker.init(frame, bbox)
+            self.robot_trackers.append(tracker)
+            
+            # Ask user if they want to select more bounding boxes
+            print("Press 'y' to select another object or any other key to continue")
+            key = cv.waitKey(0)
+            if key != ord('y'):
+                break
+
+            cv.destroyWindow("Frame")
 
     #initialize
     def __init__(self, height, length, video_file, robots, metric = True):
@@ -58,6 +93,8 @@ class VideoToGraph:
         self.tracked_robots = {}
         self.robots_colors = {uf.ROBOT_ONE: (uf.ROBOT_ONE_RANGE), uf.ROBOT_TWO: (uf.ROBOT_TWO_RANGE)}
         self.robots = robots
+        self.robot_trackers = []
+        self.robot_bounding_boxes = []
 
         # relay processed video via thread to avoid creating a blocking call
         self.frame_queue = queue.Queue(maxsize=1)
@@ -90,6 +127,18 @@ class VideoToGraph:
         center = self.tracked_robots[robot].get_location()
         return center
 
+    def get_action_point(self, action_point):
+        action_point = self.tracked_qr_objects[action_point] if self.tracked_qr_objects.__contains__(action_point) else None
+        return action_point
+    
+    def get_nearest_node_to_actionpoint(self, action_point):
+    
+        action_point = self.get_action_point(action_point)
+        if action_point is None:
+            return None
+        print(action_point)
+        center = uf.find_center_of_rectangle(action_point)
+        return gr.find_nearest_node(self.graph, center)
 
     # Create and update graph from the video input
     def start_environment(self):
@@ -116,7 +165,6 @@ class VideoToGraph:
                 self.tracked_robots = uf.get_all_objects(self.H, self.cap)
 
             # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
-                
             refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
             update = frame_count % self.overlay_update_frame_interval == 0
             overlay_image = frame.copy()
@@ -148,6 +196,10 @@ class VideoToGraph:
 
                 #self.detect_qr_objects(overlay_image)
                 refresh_graph = False
+
+            self.update_robot_positions_from_trackers(frame)
+            for i in range(len(self.robot_trackers)):
+                self.draw_robot_position(overlay_image, i)
 
             # self.detect_robots(overlay_image, self.robots_colors)
             if self.display_grid:
@@ -203,6 +255,7 @@ class VideoToGraph:
                 gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
                 self.refresh_matrix(self.corners)
                 gr.set_node_positions(self.graph, self.matrix)
+            self.update_robot_positions_from_trackers(image)
             self.detect_static_obstacles(image)
             self.detect_qr_objects(image)
             # self.detect_robots(image, self.robots_colors)
@@ -292,6 +345,24 @@ class VideoToGraph:
             cv.drawContours(overlay_image, [contour], -1, uf.RED, 2)
             gr.update_graph_based_on_obstacle(self.graph, contour, proximity_threshold)
 
+    def update_robot_positions_from_trackers(self, image):
+        for i, tracker in enumerate(self.robot_trackers):
+            ok, bbox = tracker.update(image)
+            if ok:
+                # Draw bounding box
+                # Tracking success
+                (x, y, w, h) = [int(v) for v in bbox]
+                top_left = (x, y)
+                bottom_right = (x + w, y + h)
+                center_x = (top_left[0] + bottom_right[0]) // 2 
+                center_y = (top_left[1] + bottom_right[1]) // 2 
+                center = (center_x, center_y)
+                self.update_robot_position((bbox,center), i)
+            else:
+                # Tracking failure
+                cv.putText(image, f"Tracking failed for Node {i}", (100, 50 + i * 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+
     def detect_robots(self, image, color_ranges):
         hsv_image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
         robots = {}
@@ -313,22 +384,24 @@ class VideoToGraph:
 
     def draw_robot_position(self, image, robot, outline_color = uf.GREEN,center_color = uf.RED):
         if robot in self.tracked_robots.keys():
-            contours, center = self.tracked_robots[robot]
-            cv.drawContours(image, [contours], -1, outline_color, 2)
+            (bbox, center) = self.tracked_robots[robot]
+            # cv.drawContours(image, [contours], -1, outline_color, 2)
+            (x, y, w, h) = [int(v) for v in bbox]
+            cv.rectangle(image, (x, y), (x + w, y + h), outline_color, 2)
             cv.circle(image, center, 7, center_color, -1)
-            self.outline_text(image, robot, (center[0]-65, center[1]-20), color=uf.GREEN, scale=1.2, outline=4)
+            self.outline_text(image, f"robot {robot}", (center[0]-65, center[1]-20), color=uf.GREEN, scale=1.2, outline=4)
         return image
 
-    def update_robot_position(self, contours, robot):
+    def update_robot_position(self, bbox, robot):
         robot = robot if robot else None
         if robot:
             try:
                 previous_position = self.tracked_robots[robot]
-                same_position = np.array_equal(contours[1], previous_position[1])
+                same_position = np.array_equal(bbox[1], previous_position[1])
                 if not same_position:
-                    self.tracked_robots[robot] = contours
+                    self.tracked_robots[robot] = bbox
             except:
-                self.tracked_robots[robot] = contours
+                self.tracked_robots[robot] = bbox
 
 
 

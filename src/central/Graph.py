@@ -267,7 +267,6 @@ class Graph(nx.Graph):
         return overlay_image
     
     def draw_transformed_path(image, graph, path):
-        overlay_image = image.copy()
         for i in range(len(path) - 1):
             node_a = path[i]
             node_b = path[i + 1]
@@ -275,10 +274,10 @@ class Graph(nx.Graph):
             pos_a = graph.nodes[node_a][Graph.PIXEL_POS]
             pos_b = graph.nodes[node_b][Graph.PIXEL_POS]
 
-            cv.line(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
+            cv.line(image, (int(pos_a[0]), int(pos_a[1])), 
                     (int(pos_b[0]), int(pos_b[1])), uf.GREEN, 2)  
 
-            cv.circle(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
+            cv.circle(image, (int(pos_a[0]), int(pos_a[1])), 
                       5, uf.YELLOW, -1)  # Yellow circle
 
-        return overlay_image
+        return image

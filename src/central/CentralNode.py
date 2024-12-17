@@ -88,6 +88,10 @@ def driver_code(video_input, robots):
 
             if cv.waitKey(1) == ord('t'):
                 central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
+                for qr_code in central_node.vg.tracked_qr_objects.keys():
+                    action_point_node = central_node.vg.get_nearest_node_to_actionpoint(qr_code)
+                    if action_point_node:
+                        print(f"Action point {qr_code}: {action_point_node}")
 
             if cv.waitKey(1) == ord('g'):
                 central_node.vg.display_grid = not central_node.vg.display_grid
