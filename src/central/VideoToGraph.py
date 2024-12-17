@@ -373,8 +373,6 @@ class VideoToGraph:
 
 
     def generate_point_to_point_movement_instructions(self, robot_schedules):
-            MOVE_DURATION = 200  # time to move between neighboring intersections
-            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
             PICKUP_CMD = "P" # Do a spin
             DROPOFF_CMD = "D" # Do a spin
             FORWARD_CMD = "F"
@@ -416,11 +414,10 @@ class VideoToGraph:
                                 elif angle <= -180:
                                     angle += 360
 
-                                duration = int(abs(angle) / 45 * TURN_DURATION)
                                 if angle > 0:
-                                    instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
+                                    instructions.append(f"{TURN_RIGHT_CMD}:{angle}")
                                 elif angle < 0:
-                                    instructions.append(f"{TURN_LEFT_CMD}:{duration}")
+                                    instructions.append(f"{TURN_LEFT_CMD}:{angle}")
 
                             i = 1
                             while (step + i < len(path)-1):
@@ -429,7 +426,7 @@ class VideoToGraph:
                                 else:
                                     break
 
-                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION * i}")
+                            instructions.append(f"{FORWARD_CMD}:{i}")
                             step += i
                             prev_direction = direction
 
