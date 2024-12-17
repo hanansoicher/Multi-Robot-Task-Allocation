@@ -123,6 +123,9 @@ class VideoToGraph:
             print("Thread couldn't be joined")
         cv.destroyAllWindows()
 
+    def has_robot_position(self, name):
+        return name in self.tracked_robots
+        
     def get_robot_positions(self, robot):
         center = self.tracked_robots[robot].get_location()
         return center
@@ -254,12 +257,16 @@ class VideoToGraph:
     def draw_qr_objects(self, overlay_image):
         for i, key in enumerate(self.tracked_qr_objects.keys()):
             print(i, key)
-            pts = np.array(self.tracked_qr_objects[key].get_bbox())
+            actor = self.tracked_qr_objects[key]
+            pts = np.array(actor.get_bbox())
             poly_pts = pts.reshape((-1, 1, 2))
 
+            pts_loc = np.array(actor.get_location())
+
             # print(pts, pts[0])
-            cv.polylines(overlay_image, poly_pts, isClosed=True, color=uf.YELLOW, thickness=2)
-            cv.putText(overlay_image, f"Action point {i+1}", (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
+            if key.startswith('action'):
+                cv.polylines(overlay_image, poly_pts, isClosed=True, color=uf.YELLOW, thickness=2)
+                cv.putText(overlay_image, f"Action point {key.strip('action')}", (pts[0][0]+20, pts[0][1]-20), cv.FONT_HERSHEY_SIMPLEX, 1.3, (0,0,0), 3)
 
     def draw_corners_overlay(self, overlay_image):
         max_y = max(self.corners.values(), key=lambda p: p[1])[1]
@@ -342,9 +349,19 @@ class VideoToGraph:
                     end_y = int(center[1] + arrow_length * np.sin(np.radians(actor.orientation)))
                     cv.arrowedLine(image, center, (end_x, end_y), (0, 0, 255), 2)
 
-            if actor.name == 'robot 1' or actor.name == 'robot 2':
-                print("Setting tracked QR objects to the respective value")
+            # Track all robot actors 
+            if actor.name in [uf.ROBOT_ONE, uf.ROBOT_TWO]:
+                print("Setting tracked QR robot objects to the respective value")
                 self.tracked_qr_objects[actor_name] = actor    
+
+            # Track all action points 
+            elif actor.name.startswith('action'):
+                print("Setting tracked QR action points to the respective value")
+                self.tracked_qr_objects[actor_name] = actor    
+
+
+            # Track all action point locations 
+            
 
         # for i, tracker in enumerate(self.robot_trackers):
         #     ok, bbox = tracker.update(image)

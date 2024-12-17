@@ -95,6 +95,18 @@ class Actor:
         bottom_right = [x + w, y + h]
         bottom_left = [x, y + h]
         return [top_left, top_right, bottom_right, bottom_left]
+    
+    def intersects_with(self, other_bbox):
+        """Check if this Actor's bounding box intersects with another bounding box."""
+        if not self.bbox or not other_bbox:
+            return False
+
+        print("ours", self.bbox, "theirs", other_bbox)
+        x1, y1, w1, h1 = self.bbox
+        x2, y2, w2, h2 = other_bbox
+
+        return not (x1 + w1 < x2 or x2 + w2 < x1 or y1 + h1 < y2 or y2 + h2 < y1)
+
 
 # Environment class to manage actors and grid information
 class Environment:
@@ -448,6 +460,7 @@ class UtilityFunctions:
         global points, polygon, tracking, polygon_complete, phase
 
         def click_event(event, x, y, flags, param):
+            global temp_frame
             global points, polygon, tracking, polygon_complete, phase
 
             if event == cv.EVENT_LBUTTONDOWN:

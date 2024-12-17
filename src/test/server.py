@@ -130,7 +130,7 @@ async def send_command(robot_connection: RobotConnection, command: RobotCommand)
 async def connect(robot_connection: RobotConnection):
     """Connect to a robot by address."""
 
-    if robot_connection.device_address not in robots:
+    if robot_connection.device_address not in robots or not robots[robot_connection.device_address].client.is_connected:
         robot = Robot(robot_connection.device_address, robot_connection.characteristic_uuid)
         robots[robot_connection.device_address] = robot
         return await robots[robot_connection.device_address].connect()
@@ -145,7 +145,8 @@ async def disconnect(robot_connection: RobotConnection):
     """Disconnect from a robot by address."""
     print("Disconnecting", robot_connection.device_address, robots)
     if robot_connection.device_address in robots:
-        return await robots[robot_connection.device_address].disconnect()
+        if robots[robot_connection.device_address].client.is_connected:
+            return await robots[robot_connection.device_address].disconnect()
     else:
         return {"status" : "disconnected"}
 

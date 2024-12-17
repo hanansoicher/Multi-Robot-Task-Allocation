@@ -14,7 +14,7 @@ class Robot:
         print("Disconnected")
         r = self.add_robot()
         print("add_robot", r)
-        r =self.connect()
+        r = self.connect()
         print("connect", r)
         self.reset_angle_data()
         self.reset_distance_data()
