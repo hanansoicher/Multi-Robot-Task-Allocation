@@ -1,3 +1,5 @@
+import os
+os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 import cv2 as cv
 import networkx as nx
 import numpy as np
@@ -52,7 +54,7 @@ class VideoToGraph:
             cv.destroyWindow("Frame")
 
     #initialize
-    def __init__(self, height, length, video_file, robots, metric = True):
+    def __init__(self, width, length, video_file, robots, metric = True):
 
         # video feed
         self.cap = self.initialize_camera(video_file)
@@ -68,7 +70,7 @@ class VideoToGraph:
 
         # Graph setup
         self.square_length_cm = length if metric else length * 2.54
-        self.square_height_cm = height if metric else height * 2.54
+        self.square_height_cm = width if metric else width * 2.54
         self.square_pixel_length = 0
         self.square_pixel_height = 0
         self.graph_x_nodes = 0
@@ -106,7 +108,6 @@ class VideoToGraph:
     # Video input
     def initialize_camera(self, camera = int(0)):
         capture = cv.VideoCapture(camera) # 0 is the default camera, can also take a file
-
         if not capture.isOpened():
             print("Cannot open camera")
             exit()
@@ -195,7 +196,12 @@ class VideoToGraph:
             try:
                 no_robots = self.no_robots()
                 if no_robots:
-                    pass
+                     # paths = self.find_paths(self.robot_goals)
+                    paths = self.paths
+                    for robot_path in paths.keys():
+                        if robot_path:
+                            for path1 in self.paths[robot_path]:
+                                overlay_image = gr.draw_transformed_path(overlay_image, graph, path1)
                 else:
                     robot_1_center = self.tracked_robots[uf.ROBOT_ONE][1]
                     robot_1 = gr.find_nearest_node(self.graph, robot_1_center)
@@ -205,7 +211,6 @@ class VideoToGraph:
                     if path is not None and self.display_paths:
                         overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
                         gr.print_path_weights(self.graph, path)
-                    
             except:
                 if update:
                     pass
@@ -239,7 +244,7 @@ class VideoToGraph:
         return self.graph
     
     def refresh_matrix(self, corners):
-        matrix = uf.compute_affine_transformation(corners, self.graph_x_nodes, self.graph_y_nodes)
+        matrix = uf.compute_affine_transformation(corners, self.grid_width, self.grid_height)
         self.matrix = matrix
 
     def draw_grid(self, image, graph):
@@ -281,14 +286,14 @@ class VideoToGraph:
     def set_dimensions(self, corners):
         try:
             # Compute grid dimensions based on the block size and image size
-            self.square_pixel_length = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
-            self.square_pixel_height = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
+            image_width_px = corners[uf.TOP_RIGHT][0] - corners[uf.TOP_LEFT][0]
+            image_height_px = corners[uf.BOTTOM_RIGHT][1] - corners[uf.TOP_LEFT][1]
 
-            pixel_block_height_px  = (self.block_size_cm / self.square_height_cm) * self.square_pixel_height
-            pixel_block_length_px = (self.block_size_cm / self.square_length_cm) * self.square_pixel_length
+            pixel_block_height_px  = (self.block_size_cm / self.maze_height) * image_height_px
+            pixel_block_width_px = (self.block_size_cm / self.maze_length) * image_width_px
 
-            self.graph_x_nodes = int(self.square_pixel_length / pixel_block_length_px)
-            self.graph_y_nodes = int(self.square_pixel_height / pixel_block_height_px)
+            self.grid_width = int(image_width_px / pixel_block_width_px)
+            self.grid_height = int(image_height_px / pixel_block_height_px)     
         except:
             print("Couldn't set the dimensions")    
 
