@@ -65,13 +65,18 @@ def driver_code(video_input, robots):
                 if len(central_node.vg.tracked_qr_objects) >= 2:
                     pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
                 
-                instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+                # instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
 
-                instructions = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+                instructions = []#[(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
-                if pos1 is not None and pos2 is not None:     
-                    instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
+                if pos1:
+                    instructions.append((uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))))
+                if pos2:
+                    instructions.append((uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1]))))
+
+                # if pos1 is not None and pos2 is not None:     
+                #     instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
                 central_node.vg.display_robot_instructions(frame, instructions)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:

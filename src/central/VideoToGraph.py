@@ -171,28 +171,6 @@ class VideoToGraph:
             if update:
                 self.convert_image_to_graph(overlay_image, refresh_graph)
 
-                # Update the trackers of each individual actor
-                for actor_name in self.tracked_robots:
-                    print("Updating actor", actor_name)
-                    actor = self.tracked_robots[actor_name]
-
-                    if actor.update(overlay_image):
-                        top_left = (int(actor.bbox[0]), int(actor.bbox[1]))
-                        bottom_right = (int(actor.bbox[0] + actor.bbox[2]), int(actor.bbox[1] + actor.bbox[3]))
-                        cv.rectangle(overlay_image, top_left, bottom_right, (0, 255, 255), 2)
-
-                        # Draw orientation arrow
-                        if actor.orientation is not None:
-                            center = tuple(map(int, actor.get_location()))
-                            arrow_length = 50
-                            end_x = int(center[0] + arrow_length * np.cos(np.radians(actor.orientation)))
-                            end_y = int(center[1] + arrow_length * np.sin(np.radians(actor.orientation)))
-                            cv.arrowedLine(overlay_image, center, (end_x, end_y), (0, 0, 255), 2)
-
-                    if actor.name == 'robot 1' or actor.name == 'robot 2':
-                        print("Setting tracked QR objects to the respective value")
-                        self.tracked_qr_objects[actor_name] = actor    
-
 
                 #self.detect_qr_objects(overlay_image)
                 refresh_graph = False
@@ -247,14 +225,15 @@ class VideoToGraph:
     
     def convert_image_to_graph(self, image, refresh_graph):
         if refresh_graph:
-            corners = uf.find_corners(image)
-            if self.corners != corners:
-                self.corners = corners
-                self.set_dimensions(self.corners)
-                self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
-                gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
-                self.refresh_matrix(self.corners)
-                gr.set_node_positions(self.graph, self.matrix)
+            #corners = uf.find_corners(image)
+            corners = self.corners
+            # if self.corners != corners:
+            self.corners = corners
+            self.set_dimensions(self.corners)
+            self.graph = nx.grid_2d_graph(self.graph_x_nodes, self.graph_y_nodes)
+            gr.add_diagonal_edges(self.graph_x_nodes, self.graph_y_nodes, self.graph)
+            self.refresh_matrix(self.corners)
+            gr.set_node_positions(self.graph, self.matrix)
             self.update_robot_positions_from_trackers(image)
             self.detect_static_obstacles(image)
             self.detect_qr_objects(image)
@@ -346,21 +325,44 @@ class VideoToGraph:
             gr.update_graph_based_on_obstacle(self.graph, contour, proximity_threshold)
 
     def update_robot_positions_from_trackers(self, image):
-        for i, tracker in enumerate(self.robot_trackers):
-            ok, bbox = tracker.update(image)
-            if ok:
-                # Draw bounding box
-                # Tracking success
-                (x, y, w, h) = [int(v) for v in bbox]
-                top_left = (x, y)
-                bottom_right = (x + w, y + h)
-                center_x = (top_left[0] + bottom_right[0]) // 2 
-                center_y = (top_left[1] + bottom_right[1]) // 2 
-                center = (center_x, center_y)
-                self.update_robot_position((bbox,center), i)
-            else:
-                # Tracking failure
-                cv.putText(image, f"Tracking failed for Node {i}", (100, 50 + i * 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+        # Update the trackers of each individual actor
+        for actor_name in self.tracked_robots:
+            print("Updating actor", actor_name)
+            actor = self.tracked_robots[actor_name]
+
+            if actor.update(image):
+                top_left = (int(actor.bbox[0]), int(actor.bbox[1]))
+                bottom_right = (int(actor.bbox[0] + actor.bbox[2]), int(actor.bbox[1] + actor.bbox[3]))
+                cv.rectangle(image, top_left, bottom_right, (0, 255, 255), 2)
+
+                # Draw orientation arrow
+                if actor.orientation is not None:
+                    center = tuple(map(int, actor.get_location()))
+                    arrow_length = 50
+                    end_x = int(center[0] + arrow_length * np.cos(np.radians(actor.orientation)))
+                    end_y = int(center[1] + arrow_length * np.sin(np.radians(actor.orientation)))
+                    cv.arrowedLine(image, center, (end_x, end_y), (0, 0, 255), 2)
+
+            if actor.name == 'robot 1' or actor.name == 'robot 2':
+                print("Setting tracked QR objects to the respective value")
+                self.tracked_qr_objects[actor_name] = actor    
+
+        # for i, tracker in enumerate(self.robot_trackers):
+        #     ok, bbox = tracker.update(image)
+        #     if ok:
+        #         # Draw bounding box
+        #         # Tracking success
+        #         (x, y, w, h) = [int(v) for v in bbox]
+        #         top_left = (x, y)
+        #         bottom_right = (x + w, y + h)
+        #         center_x = (top_left[0] + bottom_right[0]) // 2 
+        #         center_y = (top_left[1] + bottom_right[1]) // 2 
+        #         center = (center_x, center_y)
+        #         self.update_robot_position((bbox,center), i)
+        #     else:
+        #         # Tracking failure
+        #         cv.putText(image, f"Tracking failed for Node {i}", (100, 50 + i * 30), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
 
 
     def detect_robots(self, image, color_ranges):
