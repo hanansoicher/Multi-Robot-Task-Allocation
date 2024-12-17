@@ -30,13 +30,13 @@ def main():
             "name": "robot 1",
             "address": "XX:XX:XX:XX:XX:XX",
             "write_uuid": 11111,
-            "START": (1,1)
+            "START": (30, 2)
         },
         "robot 2": {
             "name": "robot 2",
             "address": "YY:YY:YY:YY:YY:YY",
             "write_uuid": 22222,
-            "START": (10,2)
+            "START": (10, 2)
         }
     }
     video_feed = [web_cam_close, web_cam_further_angle, web_cam_further_top]
@@ -160,11 +160,13 @@ class CentralNode:
             Robot(id='robot 2', start=robots['robot 2']['START']),
         ]
         tasks = [
-            Task(id=0, start=(11,1),  end=(15,2), deadline=5000),
-            Task(id=1, start=(2,2),  end=(15,1), deadline=5000),
-            Task(id=2, start=(3, 4),  end=(7,1),  deadline=6000),
-            # Task(id=3, start=(3,2),  end=(9, 4), deadline=3500),
-            # Task(id=4, start=(7,9), end=(7,7),  deadline=4000)
+            Task(id=0, start=(11,1),  end=(15,2), deadline=1000),
+            Task(id=1, start=(2,2),  end=(15,1), deadline=1000),
+            Task(id=2, start=(30,4),  end=(7,1),  deadline=1000),
+            # Task(id=3, start=(30,4),  end=(16,1),  deadline=1000),
+            # Task(id=4, start=(30,4),  end=(16,3),  deadline=2000),
+            # Task(id=5, start=(3,2),  end=(9, 4), deadline=2000),
+            # Task(id=6, start=(7,9), end=(40,7),  deadline=2000)
         ]
         tasks_stream = [[tasks, 0]]
         self.agents = agents
@@ -207,10 +209,10 @@ class CentralNode:
                         path = gr.safe_astar_path(temp_graph, self.action_points[i], self.action_points[j], gr.heuristic)
                         if path is None:
                             continue
-                        print(path)
+                        # print(path)
                         turning_cost = 0
                         movement_cost = gr.get_path_weights(temp_graph, path)
-                        print(f"Movement cost: {movement_cost}")
+                        # print(f"Movement cost: {movement_cost}")
                         # Add turning costs to edges along path
                         prev_direction = 0 # North
                         for src, dest in zip(path[:-1], path[1:]):
@@ -238,7 +240,7 @@ class CentralNode:
                                 
                             prev_direction = new_direction
                         total_cost = movement_cost + turning_cost
-                        print(f"Total cost: {total_cost}")
+                        # print(f"Total cost: {total_cost}")
                         solver_graph[i][j] = int(total_cost)
                         solver_graph[j][i] = int(total_cost)
                         # print(solver_graph[i][j])
@@ -317,6 +319,7 @@ class CentralNode:
         return robot_schedules
 
     def generate_point_to_point_movement_instructions(self, robot_schedules):
+            self.paths = []
             PICKUP_CMD = "P" # Do a spin
             DROPOFF_CMD = "D" # Do a spin
             FORWARD_CMD = "F"
@@ -324,22 +327,29 @@ class CentralNode:
             TURN_RIGHT_CMD = "R"
             WAIT_CMD = "W"
             instructions_set = []
-            for robot_id, rschedule in enumerate(robot_schedules):
+            for i, rschedule in enumerate(robot_schedules):
+                robot_id = "robot 1" if i == 0 else "robot 2"
                 instructions = []
                 prev_direction = None
                 movement_start = False
-                print(f"Robot {robot_id} paths:")
+                # print(f"Robot {robot_id} paths:")
                 for i in range(len(rschedule)-1):
                     src = rschedule[i]['location']
                     dest = rschedule[i+1]['location']
+
                     next_action = rschedule[i+1]['action']
                     if i > 0 and next_action != "WAIT":
                         movement_start = True
                     # Compute full path between src and dest
                     path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get('pos'), self.vg.graph.nodes[dest].get('pos'), gr.heuristic)
+                    print(path)
+                    if self.vg.paths.get(robot_id) is None:
+                        self.vg.paths[robot_id] = []
+                    self.vg.paths[robot_id].append(path)
+
                     if movement_start == False and gr.get_path_weights(self.vg.graph, path) < rschedule[i+1]['time'] - rschedule[i]['time']:
                         instructions.append(f"{WAIT_CMD}:{int(rschedule[i+1]['time'] - rschedule[i]['time'] - gr.get_path_weights(self.vg.graph, path))}")
-                    print(path)
+                    # print(path)
 
                     if len(path) > 1:
                         step = 0
@@ -393,16 +403,8 @@ class CentralNode:
         current_pos = start_pos
         current_direction = 'N'
         
-        direction_changes = {
-            'N': {'L': 'NW', 'R': 'NE'},
-            'NE': {'L': 'N', 'R': 'E'},
-            'E': {'L': 'NE', 'R': 'SE'},
-            'SE': {'L': 'E', 'R': 'S'},
-            'S': {'L': 'SE', 'R': 'SW'},
-            'SW': {'L': 'S', 'R': 'W'},
-            'W': {'L': 'SW', 'R': 'NW'},
-            'NW': {'L': 'W', 'R': 'N'}
-        }
+        directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+
         
         direction_vectors = {
             'N': (-1, 0),
@@ -444,10 +446,19 @@ class CentralNode:
                 current_pos = (current_pos[0] + dx, current_pos[1] + dy)
                 current_time += duration
                 
-            elif cmd in ['L', 'R']:
-                current_direction = direction_changes[current_direction][cmd]
-                current_time += duration
+            elif cmd in ['L', 'R']: # Position stays the same, turn in place
+                num_turns = duration // TURN_DURATION_MS
                 
+                current_idx = directions.index(current_direction)
+                
+                if cmd == 'L':
+                    new_idx = (current_idx - num_turns) % 8
+                else:
+                    new_idx = (current_idx + num_turns) % 8
+                    
+                current_direction = directions[new_idx]
+                current_time += duration
+                    
             elif cmd in ['P', 'D']:
                 # Pickup/Dropoff adds time but doesn't change position
                 current_time += TURN_DURATION_MS*8  # Duration for 360 degree spin
@@ -520,6 +531,7 @@ class CentralNode:
                             'segment1': (i, i+1),
                             'segment2': (j, j+1)
                         })
+                        print(f"Collision detected at time {t} between robots while robot 1 is moving from {r1_start['location']} to {r1_end['location']} and robot 2 is moving from {r2_start['location']} to {r2_end['location']}")
                         break  # Found collision for this segment pair
         
         return collisions
@@ -590,16 +602,16 @@ class CentralNode:
                     duration = int(duration)
                 else:
                     command = instruction
-                if command == 'F':
-                    self.robots[robot_id].move(duration)
-                elif command == 'L':
-                    self.robots[robot_id].turn(duration)
-                elif command == 'R':
-                    self.robots[robot_id].turn(duration)
-                elif command == 'P' or command == 'D':
-                    self.robots[robot_id].turn(TURN_DURATION_MS*8)  # 360 degree spin
-                elif command == 'W':
-                    self.robots[robot_id].wait(duration)
+                # if command == 'F':
+                #     self.robots[robot_id].move(duration)
+                # elif command == 'L':
+                #     self.robots[robot_id].turn(duration)
+                # elif command == 'R':
+                #     self.robots[robot_id].turn(duration)
+                # elif command == 'P' or command == 'D':
+                #     self.robots[robot_id].turn(TURN_DURATION_MS*8)  # 360 degree spin
+                # elif command == 'W':
+                #     self.robots[robot_id].wait(duration)
                 print(f"Sent instruction {instruction} to {robot_id}")
             print(f"Finished sending instructions to {robot_id}")
 

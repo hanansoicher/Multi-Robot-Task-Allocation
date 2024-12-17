@@ -1,3 +1,5 @@
+import os
+os.environ["OPENCV_LOG_LEVEL"]="FATAL"
 import cv2 as cv
 import networkx as nx
 import numpy as np
@@ -19,13 +21,12 @@ class VideoToGraph:
 
         # video feed
         self.cap = self.initialize_camera(video_file)
-
         # Graph setup
         self.maze_height = width if metric else width * 2.54
         self.maze_length = length if metric else length * 2.54
         self.grid_height = 0
         self.grid_width = 0
-        self.block_size_cm = 3.5
+        self.block_size_cm = 1
         self.corners = {}
         self.matrix = any
         self.graph = nx.Graph()
@@ -49,7 +50,6 @@ class VideoToGraph:
     # Video input
     def initialize_camera(self, camera = int(0)):
         capture = cv.VideoCapture(camera) # 0 is the default camera, can also take a file
-
         if not capture.isOpened():
             print("Cannot open camera")
             exit()
@@ -91,14 +91,14 @@ class VideoToGraph:
             try:
                 no_robots, overlay_image = self.no_robots(overlay_image)
                 if no_robots:
-                    pass
-                else:
-                    paths = self.find_paths(self.robot_goals)
+                     # paths = self.find_paths(self.robot_goals)
+                    paths = self.paths
                     for robot_path in paths.keys():
                         if robot_path:
-                            path = paths[robot_path]
-                            overlay_image = gr.draw_transformed_path(overlay_image, graph, path)
-                            self.paths[robot_path] = path
+                            for path1 in self.paths[robot_path]:
+                                overlay_image = gr.draw_transformed_path(overlay_image, graph, path1)
+                else:
+                   pass
             except:
                 if update:
                     print("Couldn't find path")
@@ -110,13 +110,13 @@ class VideoToGraph:
 
     def no_robots(self, overlay_image):
         no_robots = not self.tracked_objects.__contains__('robot 1') and not self.tracked_objects.__contains__('robot 2')
-        if no_robots:
-            top_left = self.corners[uf.TOP_LEFT]
-            bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
-            path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
-            if path:
-                overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
-                self.paths['robot 1'] = path
+        # if no_robots:
+        #     top_left = self.corners[uf.TOP_LEFT]
+        #     bottom_right = gr.find_nearest_node(self.graph, self.corners[uf.BOTTOM_RIGHT])
+        #     path = gr.a_star_from_pixel_pos(self.graph, top_left, bottom_right)
+        #     if path:
+        #         overlay_image = gr.draw_transformed_path(overlay_image, self.graph, path)
+        #         self.paths['robot 1'] = path
         return no_robots, overlay_image
     
     def convert_image_to_graph(self, image, refresh_graph):
