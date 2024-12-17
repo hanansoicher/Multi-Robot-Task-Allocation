@@ -11,8 +11,11 @@ class Robot:
         """Asynchronous initialization."""
         print("Init")
         self.disconnect()
-        self.add_robot()
-        self.connect()
+        print("Disconnected")
+        r = self.add_robot()
+        print("add_robot", r)
+        r =self.connect()
+        print("connect", r)
         self.reset_angle_data()
         self.reset_distance_data()
         print("Init complete")

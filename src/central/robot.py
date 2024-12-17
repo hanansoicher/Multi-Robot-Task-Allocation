@@ -22,7 +22,9 @@ class Robot:
         """Asynchronous initialization."""
         print("Init")
         self.client = await self._get_device_address_async(self.device_address, self.device_name)
+        print(self.client)
         await self.reconnect_async(self.reconnect_time, retries=10)
+        print(self.client)
         await self.reset_angle_data()
         await self.reset_distance_data()
         print("Init complete")

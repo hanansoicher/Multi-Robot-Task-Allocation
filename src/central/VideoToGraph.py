@@ -145,8 +145,6 @@ class VideoToGraph:
         frame_count = 0  # Count frames to update the overlay after a set number of frames
         refresh_graph = True  
 
-
-
         while self.running:
 
             # Capture frame-by-frame

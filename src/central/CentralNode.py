@@ -39,80 +39,80 @@ def driver_code(video_input, robots):
     solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
-    # central_node.init()
+    central_node.init()
 
-    # Wait for the mapping to be completed
-    while len(central_node.vg.corners) < 4:
-        print("Waiting for corners to be detected")
-        time.sleep(1)
+    # # Wait for the mapping to be completed
+    # while len(central_node.vg.corners) < 4:
+    #     print("Waiting for corners to be detected")
+    #     time.sleep(1)
 
-    # Wait for all key objects to be recognized
+    # # Wait for all key objects to be recognized
 
-    central_node.vg.overlay_update_frame_interval = 1
-    last_time = time.time()
-    try:
-        while True:
-            if not central_node.vg.frame_queue.empty():
-                frame = central_node.vg.frame_queue.get()
-                pos1, pos2 = None, None
-                if central_node.can_calibrate(): 
-                    central_node.calibrate()
+    # central_node.vg.overlay_update_frame_interval = 1
+    # last_time = time.time()
+    # try:
+    #     while True:
+    #         if not central_node.vg.frame_queue.empty():
+    #             frame = central_node.vg.frame_queue.get()
+    #             pos1, pos2 = None, None
+    #             if central_node.can_calibrate(): 
+    #                 central_node.calibrate()
                     
-                if len(central_node.vg.tracked_qr_objects) >= 1:
-                    pos1 = central_node.vg.get_robot_positions(uf.ROBOT_ONE)
+    #             if len(central_node.vg.tracked_qr_objects) >= 1:
+    #                 pos1 = central_node.vg.get_robot_positions(uf.ROBOT_ONE)
 
-                    # Once we have identified at least one robot, try to calibrate
-                if len(central_node.vg.tracked_qr_objects) >= 2:
-                    pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
+    #                 # Once we have identified at least one robot, try to calibrate
+    #             if len(central_node.vg.tracked_qr_objects) >= 2:
+    #                 pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
                 
-                # instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+    #             # instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
 
-                instructions = []#[(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+    #             instructions = []#[(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
-                if pos1:
-                    instructions.append((uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))))
-                if pos2:
-                    instructions.append((uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1]))))
+    #             if pos1:
+    #                 instructions.append((uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))))
+    #             if pos2:
+    #                 instructions.append((uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1]))))
 
-                # if pos1 is not None and pos2 is not None:     
-                #     instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
-                central_node.vg.display_robot_instructions(frame, instructions)
-                cv.imshow(f'video feed: {video_input}', frame)
-            if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
-                break
-            if time.time() - last_time > 2:  
-                last_time = time.time()
-                # if not solver_ran:
-                #     solution = central_node.run_solver(robots)
-                #     solver_ran = True
-                #     schedules = central_node.convert_solution_to_schedules(solution)
-                #     instructions = central_node.generate_point_to_point_movement_instructions(schedules)
-                #     print("Instructions: ", instructions)
-                #     # central_node.send_instructions(instructions)
+    #             # if pos1 is not None and pos2 is not None:     
+    #             #     instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
+    #             central_node.vg.display_robot_instructions(frame, instructions)
+    #             cv.imshow(f'video feed: {video_input}', frame)
+    #         if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
+    #             break
+    #         if time.time() - last_time > 2:  
+    #             last_time = time.time()
+    #             # if not solver_ran:
+    #             #     solution = central_node.run_solver(robots)
+    #             #     solver_ran = True
+    #             #     schedules = central_node.convert_solution_to_schedules(solution)
+    #             #     instructions = central_node.generate_point_to_point_movement_instructions(schedules)
+    #             #     print("Instructions: ", instructions)
+    #             #     # central_node.send_instructions(instructions)
 
-            if cv.waitKey(1) == ord('t'):
-                central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
-                for qr_code in central_node.vg.tracked_qr_objects.keys():
-                    action_point_node = central_node.vg.get_nearest_node_to_actionpoint(qr_code)
-                    if action_point_node:
-                        print(f"Action point {qr_code}: {action_point_node}")
+    #         if cv.waitKey(1) == ord('t'):
+    #             central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
+    #             for qr_code in central_node.vg.tracked_qr_objects.keys():
+    #                 action_point_node = central_node.vg.get_nearest_node_to_actionpoint(qr_code)
+    #                 if action_point_node:
+    #                     print(f"Action point {qr_code}: {action_point_node}")
 
-            if cv.waitKey(1) == ord('g'):
-                central_node.vg.display_grid = not central_node.vg.display_grid
+    #         if cv.waitKey(1) == ord('g'):
+    #             central_node.vg.display_grid = not central_node.vg.display_grid
 
-            if cv.waitKey(1) == ord('o'):
-                central_node.vg.display_obstacles = not central_node.vg.display_obstacles
+    #         if cv.waitKey(1) == ord('o'):
+    #             central_node.vg.display_obstacles = not central_node.vg.display_obstacles
             
-            if cv.waitKey(1) == ord('p'):
-                central_node.vg.display_paths = not central_node.vg.display_paths
+    #         if cv.waitKey(1) == ord('p'):
+    #             central_node.vg.display_paths = not central_node.vg.display_paths
 
-            if cv.waitKey(1) == ord('h'):
-                central_node.vg.display_HUD = not central_node.vg.display_HUD
+    #         if cv.waitKey(1) == ord('h'):
+    #             central_node.vg.display_HUD = not central_node.vg.display_HUD
 
-    finally:
-        central_node.tear_down()
-        print("Final block finished")
+    # finally:
+    #     central_node.tear_down()
+    #     print("Final block finished")
     
 class CentralNode:
 
@@ -120,7 +120,7 @@ class CentralNode:
     HEIGHT_CM = 61.5 - 2*CORNER_OFFSET_CM  
     LENGTH_CM = 92 - 2*CORNER_OFFSET_CM
     def __init__(self, camera_input, robots):
-        self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
+        #self.vg = v2g.VideoToGraph(CentralNode.HEIGHT_CM, CentralNode.LENGTH_CM, camera_input, robots)
         self.robot_data = robots
         self.camera_input = camera_input
         self.has_already_calibrated = False
