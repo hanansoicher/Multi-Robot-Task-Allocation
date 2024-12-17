@@ -39,11 +39,14 @@ def driver_code(video_input, robots):
     solver_ran = False
     # parse the video adjust parameter to 0 to use webcam 
     central_node = CentralNode(video_input, robots)
-    central_node.init()
+    # central_node.init()
 
+    # Wait for the mapping to be completed
     while len(central_node.vg.corners) < 4:
         print("Waiting for corners to be detected")
         time.sleep(1)
+
+    # Wait for all key objects to be recognized
 
     central_node.vg.overlay_update_frame_interval = 1
     last_time = time.time()
@@ -51,22 +54,25 @@ def driver_code(video_input, robots):
         while True:
             if not central_node.vg.frame_queue.empty():
                 frame = central_node.vg.frame_queue.get()
-
                 pos1, pos2 = None, None
                 if central_node.can_calibrate(): 
                     central_node.calibrate()
                     
-                if len(central_node.vg.tracked_objects) >= 1:
+                if len(central_node.vg.tracked_qr_objects) >= 1:
                     pos1 = central_node.vg.get_robot_positions(uf.ROBOT_ONE)
 
                     # Once we have identified at least one robot, try to calibrate
-                if len(central_node.vg.tracked_objects) >= 2:
+                if len(central_node.vg.tracked_qr_objects) >= 2:
                     pos2 = central_node.vg.get_robot_positions(uf.ROBOT_TWO)
+                
                 instructions_1 = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
 
+
+                instructions = [(uf.ROBOT_ONE, [(0,0)]), (uf.ROBOT_TWO, [(1,1)])]
+
                 if pos1 is not None and pos2 is not None:     
-                    instructions_1 = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
-                central_node.vg.display_robot_instructions(frame, instructions_1, robots)
+                    instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
+                central_node.vg.display_robot_instructions(frame, instructions)
                 cv.imshow(f'video feed: {video_input}', frame)
             if cv.waitKey(1) == ord('q') or central_node.vg.running == False:
                 break
@@ -80,11 +86,20 @@ def driver_code(video_input, robots):
                 #     print("Instructions: ", instructions)
                 #     # central_node.send_instructions(instructions)
 
-            if cv.waitKey(1) == ord('r'):
-                central_node.vg.block_size_cm = (central_node.vg.block_size_cm % 15) + 2
-
             if cv.waitKey(1) == ord('t'):
-                central_node.vg.overlay_update_frame_interval = (central_node.vg.overlay_update_frame_interval % 20) + 2
+                central_node.vg.deadline_threshold = (central_node.vg.deadline_threshold % 2000) - 100 
+
+            if cv.waitKey(1) == ord('g'):
+                central_node.vg.display_grid = not central_node.vg.display_grid
+
+            if cv.waitKey(1) == ord('o'):
+                central_node.vg.display_obstacles = not central_node.vg.display_obstacles
+            
+            if cv.waitKey(1) == ord('p'):
+                central_node.vg.display_paths = not central_node.vg.display_paths
+
+            if cv.waitKey(1) == ord('h'):
+                central_node.vg.display_HUD = not central_node.vg.display_HUD
 
     finally:
         central_node.tear_down()
@@ -100,6 +115,7 @@ class CentralNode:
         self.robot_data = robots
         self.camera_input = camera_input
         self.has_already_calibrated = False
+        self.robots = []
 
     def init(self):
         # TEMPORARY, REMOVE LATER
