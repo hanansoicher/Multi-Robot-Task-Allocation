@@ -60,8 +60,10 @@ def driver_code(video_input, robots):
         print("Waiting for SMT to be detected")
         time.sleep(1)
 
-
     # 
+    q = central_node.vg.tracked_qr_objects
+    robots = [q[a] for a in q if a.startswith('robot') ]
+
     try:
         
         scheduled_tasks = {}
@@ -96,69 +98,84 @@ def driver_code(video_input, robots):
                         robots = central_node.init_robots(get_robot_configs(uf.ROBOT_TWO))
                         central_node.robot_calibration_and_sync(robots)
 
-                ### Stage 2 --> Action Point Scheduling
-                # Identify all key action points and available robots
-                q = central_node.vg.tracked_qr_objects
-                all_actions = [ q[o] for o in q if o.startswith('action') and not (hasattr(q[o], "scheduled") or hasattr(q[o], "completed"))]
-                available_robots = [ r for r in central_node.robots if r.current_task == None ]
+                # ### Stage 2 --> Action Point Scheduling
+                # # Identify all key action points and available robots
+                # q = central_node.vg.tracked_qr_objects
+                # all_actions = [ q[o] for o in q if o.startswith('action') and not (hasattr(q[o], "scheduled") or hasattr(q[o], "completed"))]
+                # available_robots = [ r for r in central_node.robots if r.current_task == None ]
 
-                for act in all_actions:
+                # for act in all_actions:
 
-                    ### Scheduling Policy and Path 
+                #     ### Scheduling Policy and Path 
 
-                    # Scheduling - if we can schedule a task, try and schedule it 
-                    cur_action = act
-                    target_robot = central_node.schedule_task(cur_action, available_robots)
-                    robot_actor = [q[o] for o in q if o.startswith('robot')][0]
+                #     # Scheduling - if we can schedule a task, try and schedule it 
+                #     cur_action = act
+                #     target_robot = central_node.schedule_task(cur_action, available_robots)
+                #     robot_actor = [q[o] for o in q if o.startswith('robot')][0]
 
-                    target_robot.current_task = act.name
-                    cur_action.scheduled = True 
+                #     target_robot.current_task = act.name
+                #     cur_action.scheduled = True 
 
-                    print("SCHEDULED", act.name)
-                    scheduled_tasks[act.name] = {
-                        'action' : cur_action,
-                        'robot' : target_robot,
-                        'robot_actor' : robot_actor
-                    }
-                
-                ### Stage 3 -> Path Planning
-                for act in scheduled_tasks:
+                #     print("SCHEDULED", act.name)
+                #     scheduled_tasks[act.name] = {
+                #         'action' : cur_action,
+                #         'robot' : target_robot,
+                #         'robot_actor' : robot_actor
+                #     }
+                # for i in range(len(robots)):
+                #     if len(central_node.vg.smt_solution[i]):
+                #         current_instruction = central_node.vg.smt_solution[i][0]
 
-                    # Tasks 
-                    task = scheduled_tasks[act]
+                #         print(type(robots[0]), type(central_node.robots[0]))
+                #         move_robot = central_node.find_robot_by_name()
+                #         central_node.send_instruction(move_robot, current_instruction)
+
+                for name in central_node.vg.smt_dict:
+                    rob = central_node.vg.smt_dict[name]
+                    sol = rob['solution']
+
+                    if len(sol):
+                        move_robot = central_node.find_robot_by_name(rob['name'])[0]
+                        central_node.send_instruction(move_robot, sol[0])
+                        sol.pop(0)
+                # ### Stage 3 -> Path Planning
+                # for act in scheduled_tasks:
+
+                #     # Tasks 
+                #     task = scheduled_tasks[act]
                     
-                    print(task)
+                #     print(task)
 
-                    # Move the robot forward
-                    target_robot = task['robot']
-                    target_robot.move(1)
+                #     # Move the robot forward
+                #     target_robot = task['robot']
+                #     target_robot.move(1)
                 
-                ### Stage 4 -> Task Completion
-                new_scheduled_tasks = {}
-                for act in scheduled_tasks: 
-                    task = scheduled_tasks[act]
+                # ### Stage 4 -> Task Completion
+                # new_scheduled_tasks = {}
+                # for act in scheduled_tasks: 
+                #     task = scheduled_tasks[act]
 
                     
-                    action = task['action']
-                    target_robot = task['robot']
-                    robot_actor = task['robot_actor']
+                #     action = task['action']
+                #     target_robot = task['robot']
+                #     robot_actor = task['robot_actor']
 
-                    if action.intersects_with(robot_actor.bbox):
-                        # Mark action as completed 
-                        print("Completed action", action.name)
-                        target_robot.current_task = None
-                        action.completed = True
+                #     if action.intersects_with(robot_actor.bbox):
+                #         # Mark action as completed 
+                #         print("Completed action", action.name)
+                #         target_robot.current_task = None
+                #         action.completed = True
                     
-                    else:
-                        new_scheduled_tasks[act] = {
-                            "action" : action,
-                            "robot" : target_robot,
-                            "robot_actor" : robot_actor
-                        }
+                #     else:
+                #         new_scheduled_tasks[act] = {
+                #             "action" : action,
+                #             "robot" : target_robot,
+                #             "robot_actor" : robot_actor
+                #         }
                 
-                scheduled_tasks = new_scheduled_tasks
+                # scheduled_tasks = new_scheduled_tasks
 
-                print('Identified actions', all_actions)
+                # print('Identified actions', all_actions)
 
                 # if pos1 is not None and pos2 is not None:     
                 #     instructions = [(uf.ROBOT_ONE, (float(pos1[0]), float(pos1[1]))), (uf.ROBOT_TWO, (float(pos2[0]), float(pos2[1])))]
@@ -215,6 +232,9 @@ class CentralNode:
         # TEMPORARY, REMOVE LATER
         # self.robots = self.init_robots(self.robot_data) # ensure connection is established
         pass 
+
+    def find_robot_by_name(self, name):
+        return [r for r in self.robots if r.device_name == name]
 
     def tracking_robot(self, name):
         return any([r.device_name == name for r in self.robots])
@@ -320,98 +340,6 @@ class CentralNode:
                 print(f"{step['time']} | {step['location']} | {step['action']} | {task_str}") 
         return robot_schedules
 
-    def generate_point_to_point_movement_instructions(self, robot_schedules):
-            MOVE_DURATION = 200  # time to move between neighboring intersections
-            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
-            PICKUP_CMD = "P" # Do a spin
-            DROPOFF_CMD = "D" # Do a spin
-            FORWARD_CMD = "F"
-            TURN_LEFT_CMD = "L"
-            TURN_RIGHT_CMD = "R"
-            instructions_set = []
-            for robot_id, rschedule in enumerate(robot_schedules):
-                instructions = []
-                prev_direction = None
-
-                print(f"Robot {robot_id} Instructions:")
-                for i in range(len(rschedule)-1):
-                    src = rschedule[i]['location']
-                    dest = rschedule[i+1]['location']
-                    next_action = rschedule[i+1]['action']
-
-                    # Compute full path between src and dest
-                    path = gr.safe_astar_path(self.vg.graph, self.vg.graph.nodes[src].get('pos'), self.vg.graph.nodes[dest].get('pos'), gr.heuristic)
-                    print(path)
-
-                    if len(path) > 1:
-                        step = 0
-                        while step < len(path)-1:
-                            direction = self.direction_to_turn(path[step], path[step + 1])
-                            if prev_direction is not None and prev_direction != direction:
-                                direction_angles = {
-                                    'N': 0,
-                                    'NE': 45,
-                                    'E': 90,
-                                    'SE': 135,
-                                    'S': 180,
-                                    'SW': 225,
-                                    'W': 270,
-                                    'NW': 315
-                                }
-                                angle = direction_angles[direction] - direction_angles[prev_direction]
-                                if angle > 180:
-                                    angle -= 360
-                                elif angle <= -180:
-                                    angle += 360
-
-                                duration = int(abs(angle) / 45 * TURN_DURATION)
-                                if angle > 0:
-                                    instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
-                                elif angle < 0:
-                                    instructions.append(f"{TURN_LEFT_CMD}:{duration}")
-
-                            i = 1
-                            while (step + i < len(path)-1):
-                                if self.direction_to_turn(path[step + i], path[step + i + 1]) == direction:
-                                    i += 1
-                                else:
-                                    break
-
-                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION * i}")
-                            step += i
-                            prev_direction = direction
-
-                    # After movement
-                    if next_action == "PICKUP":
-                        instructions.append(PICKUP_CMD)
-                    elif next_action == "DROPOFF":
-                        instructions.append(DROPOFF_CMD)
-
-                instructions_set.append(instructions)
-                instructions_str = ">".join(instructions)
-                print(f"Robot {robot_id} Instruction string:")
-                print(instructions_str)
-            for robot_id, instructions in enumerate(instructions_set):
-                self.send_instructions(robot_id, instructions)
-            return instructions_set
-
-    def direction_to_turn(self, src, dest):
-        if dest[1] == src[1] and dest[0] < src[0]:
-            return 'N'
-        elif dest[1] == src[1] and dest[0] > src[0]:
-            return 'S'
-        elif dest[0] == src[0] and dest[1] > src[1]:
-            return 'E'
-        elif dest[0] == src[0] and dest[1] < src[1]:
-            return 'W'
-        elif dest[0] > src[0] and dest[1] > src[1]:
-            return 'SE'
-        elif dest[0] > src[0] and dest[1] < src[1]:
-            return 'NE'
-        elif dest[0] < src[0] and dest[1] > src[1]:
-            return 'SW'
-        elif dest[0] < src[0] and dest[1] < src[1]:
-            return 'NW'
 
     def send_instructions(self, robot, instructions):
         for instruction in instructions:
@@ -419,11 +347,11 @@ class CentralNode:
         pass
 
     def send_instruction(self, robot, instruction, duration=None):
-        if instruction == 'F':
+        if instruction.startswith('F'):
             robot.move(1)
-        elif instruction == 'L':
+        elif instruction.startswith('L'):
             robot.turn(-90)
-        elif instruction == 'R':
+        elif instruction.startswith('R'):
             robot.turn(-90)
         # elif instruction == 'P' or  instruction == 'D':
         #     self.motor_controller.spin()

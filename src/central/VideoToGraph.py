@@ -165,7 +165,7 @@ class VideoToGraph:
 
         for i, r in enumerate(robots):
             agents.append(
-                Robot(id=i, start = r.get_location())
+                Robot(id=i, start = gr.find_nearest_node(self.graph, r.get_location()))
             )
         
         # Insanely high number, 
@@ -175,16 +175,16 @@ class VideoToGraph:
         for i in range(1, len(actions) - 1):
             tasks.append(
                 Task(id = i, 
-                     start=actions[i-1].get_location(),
-                     end=actions[i].get_location(),
+                     start=gr.find_nearest_node(self.graph, actions[i-1].get_location()),
+                     end=gr.find_nearest_node(self.graph, actions[i].get_location()),
                      deadline=deadline
                      )
             )
         
         tasks.append(Task(
             id = len(tasks),
-            start=actions[-1].get_location(),
-            end=actions[0].get_location(),
+            start=gr.find_nearest_node(self.graph, actions[-1].get_location()),
+            end=gr.find_nearest_node(self.graph, actions[0].get_location()),
             deadline=deadline
         ))
             
@@ -267,9 +267,22 @@ class VideoToGraph:
                 print("Can't receive frame (stream end?). Exiting ...")
                 self.running = False
                 break
-            
+
             if self.corners == {}:
                 self.corners, self.H = uf.find_corners_feed(self.cap)
+
+            # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
+            refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
+            overlay_image = frame.copy()
+            update = frame_count % self.overlay_update_frame_interval == 0
+            
+            if update:
+                self.convert_image_to_graph(overlay_image, refresh_graph)
+
+
+                #self.detect_qr_objects(overlay_image)
+                refresh_graph = False
+ 
             
             if self.tracked_robots == {}:
                 # Find all robots, actions, and grab the SMT solution
@@ -280,20 +293,19 @@ class VideoToGraph:
 
                 self.smt_solution = self.run_solver(actions, robots)
                 self.smt_solution = self.convert_solution_to_schedules(self.smt_solution)
+                self.smt_solution = self.generate_point_to_point_movement_instructions(self.smt_solution)
                 self.done_smt = True
-                print(self.smt_solution)
 
-            # frame = cv.warpPerspective(frame, self.H, (frame.shape[1], frame.shape[0]))
-            refresh_graph = True if frame_count % self.overlay_update_frame_interval*3 == 0 else False
-            update = frame_count % self.overlay_update_frame_interval == 0
-            overlay_image = frame.copy()
-            if update:
-                self.convert_image_to_graph(overlay_image, refresh_graph)
+                self.smt_dict = {}
 
+                for rob, sol in zip(robots, self.smt_solution):
+                    self.smt_dict[rob.name] = {
+                        'name' : rob.name,
+                        'solution' : sol,
+                        'robot' : rob
+                    }
 
-                #self.detect_qr_objects(overlay_image)
-                refresh_graph = False
-
+          
             self.update_robot_positions_from_trackers(frame)
             for i in range(len(self.robot_trackers)):
                 self.draw_robot_position(overlay_image, i)
@@ -340,6 +352,99 @@ class VideoToGraph:
 
     def no_robots(self):
         return not self.tracked_robots.__contains__(uf.ROBOT_ONE) and not self.tracked_robots.__contains__(uf.ROBOT_TWO)
+
+    def direction_to_turn(self, src, dest):
+        if dest[1] == src[1] and dest[0] < src[0]:
+            return 'N'
+        elif dest[1] == src[1] and dest[0] > src[0]:
+            return 'S'
+        elif dest[0] == src[0] and dest[1] > src[1]:
+            return 'E'
+        elif dest[0] == src[0] and dest[1] < src[1]:
+            return 'W'
+        elif dest[0] > src[0] and dest[1] > src[1]:
+            return 'SE'
+        elif dest[0] > src[0] and dest[1] < src[1]:
+            return 'NE'
+        elif dest[0] < src[0] and dest[1] > src[1]:
+            return 'SW'
+        elif dest[0] < src[0] and dest[1] < src[1]:
+            return 'NW'
+
+
+    def generate_point_to_point_movement_instructions(self, robot_schedules):
+            MOVE_DURATION = 200  # time to move between neighboring intersections
+            TURN_DURATION = 100  # calculate time to turn 90, 180, 270, 360 degrees
+            PICKUP_CMD = "P" # Do a spin
+            DROPOFF_CMD = "D" # Do a spin
+            FORWARD_CMD = "F"
+            TURN_LEFT_CMD = "L"
+            TURN_RIGHT_CMD = "R"
+            instructions_set = []
+            for robot_id, rschedule in enumerate(robot_schedules):
+                instructions = []
+                prev_direction = None
+
+                print(f"Robot {robot_id} Instructions:")
+                for i in range(len(rschedule)-1):
+                    src = rschedule[i]['location']
+                    dest = rschedule[i+1]['location']
+                    next_action = rschedule[i+1]['action']
+
+                    # Compute full path between src and dest
+                    path = gr.safe_astar_path(self.graph, self.graph.nodes[src].get(gr.GRID_POS), self.graph.nodes[dest].get(gr.GRID_POS), gr.heuristic)
+                    print(path)
+
+                    if len(path) > 1:
+                        step = 0
+                        while step < len(path)-1:
+                            direction = self.direction_to_turn(path[step], path[step + 1])
+                            if prev_direction is not None and prev_direction != direction:
+                                direction_angles = {
+                                    'N': 0,
+                                    'NE': 45,
+                                    'E': 90,
+                                    'SE': 135,
+                                    'S': 180,
+                                    'SW': 225,
+                                    'W': 270,
+                                    'NW': 315
+                                }
+                                angle = direction_angles[direction] - direction_angles[prev_direction]
+                                if angle > 180:
+                                    angle -= 360
+                                elif angle <= -180:
+                                    angle += 360
+
+                                duration = int(abs(angle) / 45 * TURN_DURATION)
+                                if angle > 0:
+                                    instructions.append(f"{TURN_RIGHT_CMD}:{duration}")
+                                elif angle < 0:
+                                    instructions.append(f"{TURN_LEFT_CMD}:{duration}")
+
+                            i = 1
+                            while (step + i < len(path)-1):
+                                if self.direction_to_turn(path[step + i], path[step + i + 1]) == direction:
+                                    i += 1
+                                else:
+                                    break
+
+                            instructions.append(f"{FORWARD_CMD}:{MOVE_DURATION * i}")
+                            step += i
+                            prev_direction = direction
+
+                    # After movement
+                    if next_action == "PICKUP":
+                        instructions.append(PICKUP_CMD)
+                    elif next_action == "DROPOFF":
+                        instructions.append(DROPOFF_CMD)
+
+                instructions_set.append(instructions)
+                instructions_str = ">".join(instructions)
+                print(f"Robot {robot_id} Instruction string:")
+                print(instructions_str)
+
+            return instructions_set
 
     def convert_solution_to_schedules(self, solution):
         num_robots = len(solution['agt'])
@@ -605,7 +710,7 @@ class VideoToGraph:
         if retval:
             for i, qr_code_info in enumerate(decoded_infos):
                 print("Received QR Code data of ", qr_code_info)
-                self.update_position(points[i], qr_code_info)
+                # self.update_position(points[i], qr_code_info)
 
         for key in self.tracked_qr_objects.keys():
             try:
