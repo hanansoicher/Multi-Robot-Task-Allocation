@@ -1,4 +1,3 @@
-import math
 import networkx as nx
 import numpy as np
 from util import UtilityFunctions as uf
@@ -12,7 +11,10 @@ class Graph(nx.Graph):
     GRID_POS = "grid_pos"
     INF = float('inf')
     EDGE_WEIGHT = "distance_in_cm"
-
+    DIAGONAL = "diagonal"
+    HORIZONTAL = "horizontal"
+    VERTICAL = "vertical"
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -68,10 +70,6 @@ class Graph(nx.Graph):
                 for neighbor in graph.neighbors(node):
                     graph[node][neighbor][Graph.EDGE_WEIGHT] = Graph.INF
                     graph[neighbor][node][Graph.EDGE_WEIGHT] = Graph.INF 
-
-    DIAGONAL = "diagonal"
-    HORIZONTAL = "horizontal"
-    VERTICAL = "vertical"
 
     def adjust_graph_weights(graph, conversion):
         for edge in graph.edges():
@@ -139,7 +137,6 @@ class Graph(nx.Graph):
         # Default case if no valid direction
         return float('inf')
 
-
     @staticmethod
     def direction_pixel(node_a_coords, node_b_coords, threshold):
         x1, y1 = node_a_coords
@@ -159,7 +156,6 @@ class Graph(nx.Graph):
         else:
             # If the movement is too small in all directions
             return None
-
 
     def update_graph_based_on_obstacle(graph, contour, proximity_threshold):
         for node in graph.nodes:
@@ -240,14 +236,11 @@ class Graph(nx.Graph):
             pixel_dist = uf.euclidean_distance(graph.nodes[node1][Graph.PIXEL_POS], graph.nodes[node2][Graph.PIXEL_POS])
             total_weight.append(weight)
             pixel_distances.append(pixel_dist)
-        total = uf.kahan_sum(total_weight)
-        total_pixel_dist = uf.kahan_sum(pixel_distances)
+        total = sum(total_weight)
+        total_pixel_dist = sum(pixel_distances)
         # print(f"Total path weight: {total}, Total pixel distance: {total_pixel_dist}")
 
         return total
-
-    
-
 
     @staticmethod
     def heuristic(node, goal):
@@ -267,7 +260,6 @@ class Graph(nx.Graph):
         return overlay_image
     
     def draw_transformed_path(image, graph, path):
-        overlay_image = image.copy()
         for i in range(len(path) - 1):
             node_a = path[i]
             node_b = path[i + 1]
@@ -275,10 +267,10 @@ class Graph(nx.Graph):
             pos_a = graph.nodes[node_a][Graph.PIXEL_POS]
             pos_b = graph.nodes[node_b][Graph.PIXEL_POS]
 
-            cv.line(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
+            cv.line(image, (int(pos_a[0]), int(pos_a[1])), 
                     (int(pos_b[0]), int(pos_b[1])), uf.GREEN, 2)  
 
-            cv.circle(overlay_image, (int(pos_a[0]), int(pos_a[1])), 
+            cv.circle(image, (int(pos_a[0]), int(pos_a[1])), 
                       5, uf.YELLOW, -1)  # Yellow circle
 
-        return overlay_image
+        return image

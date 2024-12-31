@@ -1,10 +1,20 @@
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request
 from pydantic import BaseModel
 from bleak import BleakClient
 import asyncio
 from typing import Dict
+import traceback
 
-app = FastAPI()
+app = FastAPI(debug=True)
+
+
+
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        print(traceback.format_exc())
+        raise e
 
 # Dictionary to map device address to Robot instances
 robots: Dict[str, "Robot"] = {}
@@ -29,11 +39,17 @@ class Robot:
     async def connect(self):
         """Establish a connection to the device."""
         try:
+            print("Sending connection to ", self.device_address)
             self.client = BleakClient(self.device_address)
+            print("Trying to connect")
             await self.client.connect()
+            print("Succesfully connected")
+
             self.connected = True
             return {"status": "connected"}
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             raise HTTPException(status_code=500, detail=f"Failed to connect: {e}")
 
     async def disconnect(self):
@@ -86,12 +102,15 @@ class Robot:
 # API to add a robot (connect to a device and store it in the robots dict)
 @app.post("/add_robot")
 async def add_robot(robot_connection: RobotConnection):
+    print(robot_connection)
     if robot_connection.device_address in robots:
         return {"message": "Robot already exists in the system."}
 
     robot = Robot(robot_connection.device_address, robot_connection.characteristic_uuid)
     robots[robot_connection.device_address] = robot
+
     await robot.connect()  # Connect the robot when added
+    print("[add_robot]", robots)
     return {"message": f"Robot with address {robot_connection.device_address} added and connected."}
 
 
@@ -110,19 +129,26 @@ async def send_command(robot_connection: RobotConnection, command: RobotCommand)
 @app.post("/connect")
 async def connect(robot_connection: RobotConnection):
     """Connect to a robot by address."""
-    if robot_connection.device_address not in robots:
+
+    if robot_connection.device_address not in robots or not robots[robot_connection.device_address].client.is_connected:
         robot = Robot(robot_connection.device_address, robot_connection.characteristic_uuid)
         robots[robot_connection.device_address] = robot
-    return await robots[robot_connection.device_address].connect()
+        return await robots[robot_connection.device_address].connect()
+    
+    else:
+        return {"status" : "connected"}
 
 
 # API to disconnect a specific robot by address
 @app.post("/disconnect")
 async def disconnect(robot_connection: RobotConnection):
     """Disconnect from a robot by address."""
-    if robot_connection.device_address not in robots:
-        raise HTTPException(status_code=404, detail="Robot not found")
-    return await robots[robot_connection.device_address].disconnect()
+    print("Disconnecting", robot_connection.device_address, robots)
+    if robot_connection.device_address in robots:
+        if robots[robot_connection.device_address].client.is_connected:
+            return await robots[robot_connection.device_address].disconnect()
+    else:
+        return {"status" : "disconnected"}
 
 
 # Clean shutdown to disconnect all robots

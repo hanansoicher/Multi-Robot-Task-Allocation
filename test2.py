@@ -21,7 +21,6 @@ environment_width_cm = dimensions[0]
 environment_height_cm = dimensions[1]
 
 # Actor class to manage individual bounding boxes and their properties
-# Actor class to manage individual bounding boxes and their properties
 class Actor:
     def __init__(self, name):
         self.name = name

@@ -1,10 +1,21 @@
 import requests
 
 class Robot:
-    def __init__(self, device_address: str, characteristic_uuid: str, api_url: str = "http://127.0.0.1:8000"):
+    def __init__(self, device_address: str, device_name: str, characteristic_uuid: str, reconnect_time = 2, api_url: str = "http://127.0.0.1:8000"):
         self.device_address = device_address
+        self.device_name = device_name
         self.characteristic_uuid = characteristic_uuid
         self.api_url = api_url
+
+    def init(self):
+        """Asynchronous initialization."""
+        print("Init")
+        self.disconnect()
+        self.add_robot()
+        self.connect()
+        self.reset_angle_data()
+        self.reset_distance_data()
+        print("Init complete")
 
     def add_robot(self):
         """Register a robot with the server."""
@@ -32,6 +43,9 @@ class Robot:
 
     def send_command(self, command: str, need_data: bool = False):
         """Synchronous wrapper for sending commands."""
+        c = self.connect()
+        print("CONNECTION", c)
+
         data = {"command": command, "need_data": need_data}
         response = requests.post(f"{self.api_url}/send_command", json={
             "robot_connection" : {
@@ -52,11 +66,16 @@ class Robot:
 
     def move(self, distance: float):
         """Send a move command."""
+        print("MOOOOOOOOOVING")
         return self.send_command(f"MOVE+{distance}")
 
     def turn(self, angle_in_degrees: float):
         """Send a turn command."""
         return self.send_command(f"TURN+{angle_in_degrees}")
+
+    def reset_angle_data(self):
+        command = f"ANGLE+1"
+        return self.send_command(command, need_data=False)
     
     def reset_distance_data(self):
         """Reset distance data."""
@@ -73,7 +92,6 @@ if __name__ == "__main__":
     robot = Robot(device_address=d['address'], characteristic_uuid=d['write_uuid'])
 
     # Register and connect the robot
-    print(robot.disconnect())
     print(robot.add_robot())
     print(robot.connect())
 

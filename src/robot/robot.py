@@ -195,7 +195,6 @@ class Robot:
         command = f"ANGLE+0"
         return float(await self._send_command(command, need_data=True))
 
-
     async def move(self, distance: float):
         """Send a move command with a specified distance."""
         command = f"MOVE+{distance}"
@@ -213,8 +212,6 @@ class Robot:
     async def reset_distance_data(self):
         command = f"ENCODER+3"
         await self._send_command_async(command, need_data_response=False)
-
-
 
 async def main():
     with open("devices.json", "r") as f:
@@ -260,8 +257,6 @@ async def main():
     print(await robot.move(5))
     r_dist = await robot.get_distance_data()
     print(r_dist)
-
-
 
 
 if __name__ == "__main__":
