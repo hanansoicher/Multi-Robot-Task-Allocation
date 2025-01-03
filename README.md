@@ -1,4 +1,4 @@
-This project implements a dynamic task allocation system for a team of robots given a set of tasks (Picking up and dropping off objects with deadlines) in a maze environment, utilizing an SMT-based Multi Robot Task Allocation library developed by UC Berkeley post-graduate researchers. 
+This project implements a dynamic task allocation system for a team of Pololu 3pi+ robots given a set of tasks (Picking up and dropping off objects with deadlines) in a maze environment, utilizing an SMT-based Multi Robot Task Allocation library developed by UC Berkeley post-graduate researchers. 
 
 Key features:
 - Real-time environment mapping and object detection using overhead camera, converted to grid coordinate system for pathfinding between task locations
@@ -9,3 +9,7 @@ Key features:
 - Support for dynamically-introduced obstacles and modular environments
 - Bluetooth communication for sending movement commands from a central coordinator node to the robots using HM-10 Bluetooth Low Energy Modules
 - Visual monitoring and debugging interface
+
+
+
+Robots are pololu 3pi+ robots with RP2040 microcontrollers with HM-10 BLE modules connected via UART. The central coordinator utilizes an overhead camera to detect the maze layout and convert it into a software representation that can be used to create a graph of travel times between robot start locations and task pickup and dropoff locations. The software representation should include a grid with 1 centimeter boxes of the entire maze with obstaacles/maze walls represented as unreachable boxes
