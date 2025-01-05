@@ -11,19 +11,37 @@ class Coordinator:
     def __init__(self):
         video = "img/mazewmarkers.png"
         self.vg = Vision()
+        self.vg.set_solver_callback(self.run_solver)
         threading.Thread(target=self.vg.run, daemon=True).start()
-        threading.Thread(target=self.check_solver_inputs_ready, daemon=True).start()
-
-    def check_solver_inputs_ready(self):
-        while True:
-            if input() == 'b':
-                self.run_solver()
 
     def run_solver(self):
+        print("Running solver...")
         robots, waypoints = self.vg.detect_markers(self.vg.frame)
         self.agents = [Robot(id=i, start=pos) for i, pos in enumerate([robots[i] for i in range(len(robots))])]
-        self.tasks = [Task(id=i, start=waypoints[2*i], end=waypoints[2*i+1]) for i in range(len(waypoints)//2)]
-        self.action_points = [robots[i] for i in range(len(robots))] + [waypoints[i] for i in range(len(waypoints))]
+        self.tasks = [Task(id=i, start=waypoints[2*i], end=waypoints[2*i+1], deadline=1000) for i in range(len(waypoints)//2)]
+        self.ap_coords = [robots[i] for i in range(len(robots))] + [waypoints[i] for i in range(len(waypoints))]
+        print(self.ap_coords)
+
+        # Remap agent and task start/end indices into the action_points indices [0, len(action_points)-1], leaving self.action_points containing the coordinates of the action point
+        ap_set = []
+        print("Agents:")
+        for a in self.agents:
+            print(a.id, a.start)
+            if a.start not in ap_set:
+                ap_set.append(a.start)
+                a.start = self.action_points.index(a.start)
+        print("Tasks:")
+        for t in self.tasks:
+            print(t.id, t.start, t.end)
+            if t.start not in ap_set:
+                ap_set.append(t.start)
+            t.start = self.action_points.index(t.start)
+            if t.end not in ap_set:
+                ap_set.append(t.end)
+            t.end = self.action_points.index(t.end)
+
+        self.action_points = ap_set
+        print(self.action_points)
         solver_graph = self.vg.create_travel_time_matrix(self.action_points)
 
         solver = MRTASolver(
@@ -98,8 +116,9 @@ class Coordinator:
             return robot_schedules
 
 def main():
-    c = Coordinator()
-    c.run_solver()
+    Coordinator()
+    while input() != 'x':
+        pass
 
 if __name__ == '__main__':
     main()

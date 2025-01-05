@@ -14,6 +14,8 @@ class Vision:
         self.graph = None
         self.homography = None
         self.running = True
+        self.solver_ran = False
+        self.solver_callback = None
 
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_ARUCO_ORIGINAL)
         self.aruco_params = cv2.aruco.DetectorParameters()
@@ -23,18 +25,24 @@ class Vision:
         self.MAZE_HEIGHT_CM = 45
         self.GRID_SIZE_CM = 1
 
+    def set_solver_callback(self, callback):
+        self.solver_callback = callback
+
     def run(self):
-        i = 0
+        frame_num = 0
+        corners_found = False
         while self.running:
-            print(f"Frame {i} processing...")
-            i += 1
+            if not self.solver_ran:
+                print(f"Frame {frame_num} processing...")
+            frame_num += 1
             ret, frame = self.cap.read()
             self.frame = frame
             if not ret or frame is None:
                 self.running = False
                 print("Cannot read frame, aborting...")
-
-            self.corners = self.find_corners(frame)
+            if not corners_found:
+                self.corners = self.find_corners(frame)
+                corners_found = True
             self.grid = self.create_grid(self.detect_unreachable_areas(frame))
             self.graph = self.create_graph()
 
@@ -69,10 +77,16 @@ class Vision:
             viz_frame = self.build_grid_overlay(viz_frame)
 
             cv2.imshow('Maze View', viz_frame)
-            print(f"Frame {i} displayed")
+            if not self.solver_ran:
+                print(f"Frame {frame_num} displayed")
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 print("q pressed, exiting...")
                 self.running = False
+            elif cv2.waitKey(1) & 0xFF == ord('b'):
+                print("b pressed, running solver...")
+                if self.solver_callback:
+                    self.solver_ran = True
+                    self.solver_callback()
 
         print("Cleaning up...")
         self.cap.release()
@@ -134,7 +148,6 @@ class Vision:
         
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel_close)
         mask = cv2.dilate(mask, kernel_dilate, iterations=1)
-        print(mask.shape)
         
         return mask
 
@@ -166,8 +179,8 @@ class Vision:
                         else:
                             waypoints[2*waypoint_i+1] = grid_pos
                             waypoint_i += 1
-                        
-        print(robots, waypoints)
+        if not self.solver_ran:
+            print(f"Detected {len(robots)} robots and {len(waypoints)} waypoints")
         return robots, waypoints
 
     def build_grid_overlay(self, frame):
@@ -243,13 +256,13 @@ class Vision:
         except cv2.error as e:
             print(f"Error resizing obstacle mask: {e}")
             return grid
-            
+
         return grid
 
     def create_graph(self):
         if self.grid is None:
             return None
-            
+
         graph = nx.Graph()
         rows, cols = self.grid.shape
         
@@ -277,7 +290,8 @@ class Vision:
         for i in range(n):
             for j in range(i+1, n):
                 try:
-                    print(locations[i], locations[j])
+                    if not self.solver_ran:
+                        print(locations[i], locations[j])
                     time = nx.shortest_path_length(self.graph, locations[i], locations[j], weight='weight')
                     matrix[i][j] = matrix[j][i] = time
                 except nx.NetworkXNoPath:
