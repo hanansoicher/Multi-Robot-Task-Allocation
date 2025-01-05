@@ -3,48 +3,100 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 from SMrTa.MRTASolver import MRTASolver, Robot
 from SMrTa.MRTASolver.objects import Task
-import Vision
+from Vision import Vision 
+import threading
 
 
 class Coordinator:
     def __init__(self):
         video = "img/mazewmarkers.png"
-        self.vg = Vision(video)
-        self.vg.run()
+        self.vg = Vision()
+        threading.Thread(target=self.vg.run, daemon=True).start()
+        threading.Thread(target=self.check_solver_inputs_ready, daemon=True).start()
+
+    def check_solver_inputs_ready(self):
+        while True:
+            if input() == 'b':
+                self.run_solver()
 
     def run_solver(self):
-        agents = [
-            Robot(id=0, start=(2,2)),
-            Robot(id=1, start=(2,8)),
-            Robot(id=2, start=(8,8)),
-        ]
-        tasks = [
-            Task(id=0, start=(8,2), end=(2,8)),
-            Task(id=1, start=(2,5), end=(5,2)),
-            Task(id=2, start=(5,8), end=(2,2)),
-        ]
-        solver_graph_locs = [[agent.start for agent in agents] + [task.start for task in tasks] + [task.end for task in tasks]].unique()
-        solver_graph = self.vg.create_travel_time_matrix(solver_graph_locs)
-        tasks_stream = [[tasks, 0]]
+        robots, waypoints = self.vg.detect_markers(self.vg.frame)
+        self.agents = [Robot(id=i, start=pos) for i, pos in enumerate([robots[i] for i in range(len(robots))])]
+        self.tasks = [Task(id=i, start=waypoints[2*i], end=waypoints[2*i+1]) for i in range(len(waypoints)//2)]
+        self.action_points = [robots[i] for i in range(len(robots))] + [waypoints[i] for i in range(len(waypoints))]
+        solver_graph = self.vg.create_travel_time_matrix(self.action_points)
 
         solver = MRTASolver(
             solver_name='z3',
             theory='QF_UFBV', 
-            agents=agents,
-            tasks_stream=tasks_stream,
+            agents=self.agents,
+            tasks_stream=[[self.tasks, 0]],
             room_graph=solver_graph,
             capacity=1,
-            num_aps=len(solver_graph_locs),
-            aps_list=[len(solver_graph_locs)],
+            num_aps=len(self.action_points),
+            aps_list=[len(self.action_points)],
             fidelity=1,
         )
 
         if solver.sol is None:
             print("No solution found!")
             return None
-
-        return solver.sol
+        
+        schedules = self.convert_solution_to_schedules(solver.sol)
+        print(schedules)
+        return schedules
     
+    def convert_solution_to_schedules(self, solution):
+            num_robots = len(solution['agt'])
+            robot_schedules = []
+            
+            for robot_id in range(num_robots):
+                schedule = []
+                agent_data = solution['agt'][robot_id]
+
+                for i in range(len(agent_data['t'])):
+                    time = agent_data['t'][i]
+                    action_id = agent_data['id'][i]
+
+                    location = None
+                    action_type = None
+                    task_num = None
+
+                    if action_id < num_robots:
+                        # This is the agent's home/start location
+                        location = self.action_points[action_id]
+                        action_type = "WAIT"
+                    else:
+                        # Task-related action
+                        task_idx = (action_id - num_robots) // 2
+                        is_pickup = ((action_id - num_robots) % 2 == 0)
+                        if is_pickup:
+                            action_type = "PICKUP"
+                            location = self.action_points[self.tasks[task_idx].start]
+                        else:
+                            action_type = "DROPOFF"
+                            location = self.action_points[self.tasks[task_idx].end]
+                        task_num = task_idx
+
+                    schedule.append({
+                        'time': time,
+                        'location': location,
+                        'action': action_type,
+                        'task_id': task_num
+                    })
+                schedule.sort(key=lambda x: x['time'])
+                robot_schedules.append(schedule)
+
+            for robot_id, schedule in enumerate(robot_schedules):
+                print(f"\nRobot {robot_id} Plan:")
+                print("Time  | Location | Action  | Task")
+                print("-" * 40)
+                
+                for step in schedule:
+                    task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
+                    print(f"{step['time']} | {step['location']} | {step['action']} | {task_str}") 
+            return robot_schedules
+
 def main():
     c = Coordinator()
     c.run_solver()
