@@ -103,16 +103,18 @@ void init_encoders(void) {
     quadrature_encoder_program_init(pio, LEFT_SM, LEFT_ENCODER_AB, 0);
 }
 
+void stop_motors(void) {
+    motors_set_speeds(0, 0);
+}
+
 void update_robot_state(void) {
     uint64_t current_time = time_us_64();
     float dt = (current_time - robot_state.last_gyro_read_time) / 1000000.0f;
     
     axes_data_t gyro_data;
     imu_read_gyro(&robot_state.imu, &gyro_data);
-    
-    // Update angle using trapezoidal integration
-    robot_state.current_angle += -(gyro_data.z + robot_state.last_gyro_value) * dt / 2.0f;
-    
+
+    robot_state.current_angle += -(gyro_data.z + robot_state.last_gyro_value) * dt / 2.0f; // trapezoidal integration
     robot_state.last_gyro_value = gyro_data.z;
     robot_state.last_gyro_read_time = current_time;
 }
@@ -120,13 +122,12 @@ void update_robot_state(void) {
 bool execute_move(float distance_cm) {
     PIDController pid;
     init_pid_controller(&pid, 2.0f, 0.01f, 4.0f);
-    
     int32_t target_ticks = (int32_t)(distance_cm * ENCODER_TICKS_PER_CM);
     int32_t start_count = (quadrature_encoder_get_count(PIO_ID, RIGHT_SM) + quadrature_encoder_get_count(PIO_ID, LEFT_SM)) / -2;
-    
     uint32_t last_time = to_ms_since_boot(get_absolute_time());
     float target_angle = robot_state.current_angle;  // Maintain current orientation
-    
+    int direction = (distance_cm >= 0) ? 1 : -1;
+
     while (1) {
         uint32_t current_time = to_ms_since_boot(get_absolute_time());
         float dt = (current_time - last_time) / 1000.0f;
@@ -142,10 +143,8 @@ bool execute_move(float distance_cm) {
         
         float correction = compute_pid(&pid, robot_state.current_angle - target_angle, dt);
         
-        int direction = (distance_cm >= 0) ? 1 : -1;
         int left_speed = (robot_state.motor_speed * direction) + correction;
         int right_speed = (robot_state.motor_speed * direction) - correction;
-        
         left_speed = fmax(fmin(left_speed, robot_state.motor_speed), -robot_state.motor_speed);
         right_speed = fmax(fmin(right_speed, robot_state.motor_speed), -robot_state.motor_speed);
         
@@ -154,23 +153,55 @@ bool execute_move(float distance_cm) {
     }
 }
 
-bool execute_turn(float angle_degrees) {
-    float start_angle = robot_state.current_angle;
-    float target_angle = start_angle + angle_degrees;
-    int direction = (angle_degrees >= 0) ? 1 : -1;
+// bool execute_turn(float angle_degrees) {
+//     float start_angle = robot_state.current_angle;
+//     float target_angle = start_angle + angle_degrees;
+//     int direction = (angle_degrees >= 0) ? 1 : -1;
     
-    while (fabs(robot_state.current_angle - target_angle) > 1.0f) {
-        motors_set_speeds(direction * robot_state.motor_speed, 
-                         -direction * robot_state.motor_speed);
+//     while (fabs(robot_state.current_angle - target_angle) > 1.0f) {
+//         motors_set_speeds(direction * robot_state.motor_speed, -direction * robot_state.motor_speed);
+//         sleep_ms(PID_UPDATE_RATE_MS);
+//     }
+//     stop_motors();
+//     return true;
+// }
+
+bool execute_turn(float angle_degrees, char direction) {
+    PIDController pid;
+    init_pid_controller(&pid, 2.0f, 0.01f, 4.0f);
+    
+    uint32_t last_time = to_ms_since_boot(get_absolute_time());
+    float target_angle;
+    if (direction == 'R') {
+        target_angle = robot_state.current_angle + angle_degrees;
+    } else if (direction == 'L') {
+        target_angle = robot_state.current_angle - angle_degrees;
+    }
+    while (target_angle > 180.0f) target_angle -= 360.0f;
+    while (target_angle < -180.0f) target_angle += 360.0f;
+    while (1) {
+        uint32_t current_time = to_ms_since_boot(get_absolute_time());
+        float dt = (current_time - last_time) / 1000.0f;
+        last_time = current_time;
+        
+        float error = target_angle - robot_state.current_angle;
+        while (error > 180.0f) error -= 360.0f;
+        while (error < -180.0f) error += 360.0f;
+        
+        if (fabs(error) < 2.0f) {
+            stop_motors();
+            return true;
+        }
+        float correction = compute_pid(&pid, error, dt);
+        int motor_speed;
+        if (direction == 'R') {
+            motor_speed = (int)fmax(fmin(correction, robot_state.motor_speed), -robot_state.motor_speed);
+        } else {
+            motor_speed = (int)fmax(fmin(-correction, robot_state.motor_speed), -robot_state.motor_speed);
+        }
+        motors_set_speeds(motor_speed, -motor_speed);
         sleep_ms(PID_UPDATE_RATE_MS);
     }
-    
-    stop_motors();
-    return true;
-}
-
-void stop_motors(void) {
-    motors_set_speeds(0, 0);
 }
 
 bool handle_command(const char* command) {
@@ -182,16 +213,24 @@ bool handle_command(const char* command) {
         uart_puts(UART_ID, success ? "COMPLETED\n" : "FAILED\n");
         return success;
     }
-    
-    else if (strncmp(command, "TURN+", 5) == 0) {
+
+    else if (strncmp(command, "RIGHT+", 6) == 0) {
+        float angle = atof(command + 6);
+        bool success = execute_turn(angle, 'R');
+        uart_puts(UART_ID, success ? "COMPLETED\n" : "FAILED\n");
+        return success;
+    }
+
+    else if (strncmp(command, "LEFT+", 5) == 0) {
         float angle = atof(command + 5);
-        bool success = execute_turn(angle);
+        bool success = execute_turn(angle, 'L');
         uart_puts(UART_ID, success ? "COMPLETED\n" : "FAILED\n");
         return success;
     }
 
     else if (strncmp(command, "WAIT+", 5) == 0) {
         int wait_time = atoi(command + 5);
+        stop_motors();
         sleep_ms(wait_time);
         uart_puts(UART_ID, "COMPLETED\n");
         return true;
@@ -222,13 +261,10 @@ void init_pid_controller(PIDController* pid, float kp, float ki, float kd) {
 }
 
 float compute_pid(PIDController* pid, float error, float dt) {
-    // Integrate error
     pid->integral += error * dt;
     
-    // Limit integral windup
     pid->integral = fmax(fmin(pid->integral, 10.0f), -10.0f);
     
-    // Compute derivative
     float derivative = (error - pid->last_error) / dt;
     pid->last_error = error;
     

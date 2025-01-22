@@ -15,24 +15,22 @@ import cv2
 
 class Coordinator:
     def __init__(self):
-        video = "img/video/test_maze.mp4"
+        video = "img/test_maze.mp4"
         self.vg = Vision(self, video)
-        self.vg.callback = self.run_solver
-        
+        self.vg.solver_callback = self.run_solver
+
         self.app, self.ui = create_ui(self.vg)
-        
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(30)  # 30ms = ~33fps
-        
         self.app.exec_()
-        
+
         self.vg.cap.release()
 
     def update_frame(self):
         frame = self.vg.run()
         if frame is not None:
-            height, width, channel = frame.shape
+            height, width, _ = frame.shape
             bytes_per_line = 3 * width
             qt_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
             self.ui.image_label.setPixmap(QPixmap.fromImage(qt_image))
@@ -46,11 +44,10 @@ class Coordinator:
         # self.robots = {f"robot {i+1}": RobotController( robot['name'], robot['address'], robot['write_uuid']) for i, robot in enumerate(robot_configs['devices'])}
 
         agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
-        print(self.vg.tasks)
         self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vg.tasks.values()]
         self.action_points = [robot_coords[i] for i in range(len(robot_coords))]
         
-        # Add all task pickup/dropoff coordinates
+        # Add all task pickup/dropoff coordinates as action_points
         for task in self.tasks:
             if task.start not in self.action_points:
                 self.action_points.append(task.start)
@@ -157,7 +154,6 @@ class Coordinator:
                     self.vg.ap_paths[rschedule[i]['location'], rschedule[i+1]['location']] = path
                 if not path:
                     continue
-                    
                 if len(path) > 1:
                     step = 0
                     while step < len(path)-1:
@@ -167,8 +163,10 @@ class Coordinator:
                         curr_dir = (dx/magnitude, dy/magnitude) if magnitude > 0 else (0, 0)
                         
                         turn_angle = self.vg.calculate_turn_angle(prev_dir, curr_dir)
-                        if turn_angle:
-                            instructions.append(f"TURN+{turn_angle}")
+                        if turn_angle > 0:
+                            instructions.append(f"RIGHT+{abs(turn_angle)}")
+                        elif turn_angle < 0:
+                            instructions.append(f"LEFT+{abs(turn_angle)}")
 
                         # Combine consecutive straight movements
                         n = 1
@@ -182,19 +180,15 @@ class Coordinator:
                             else:
                                 break
 
-                        move_duration = n * self.vg.graph.get_edge_data(path[step], path[step+1])['weight'] * self.vg.MOVE_DURATION_MS_PER_CM
+                        move_duration = nx.shortest_path_length(self.vg.graph, source=path[step], target=path[step+n], weight='weight') * self.vg.MOVE_DURATION_MS_PER_CM
                         instructions.append(f"MOVE+{move_duration}")
                         
                         step += n
                         prev_dir = curr_dir
 
                     if next_action == "PICKUP" or next_action == "DROPOFF":
-                        instructions.append("TURN+360")
-
+                        instructions.append("RIGHT+360")
             instructions_set.append(instructions)
-            # instr_str = " > ".join(instructions)
-            # print(f"Robot {robot_id} Instruction string: \n {instr_str}")
-            
         return instructions_set
 
     def send_instructions(self, instructions_set):

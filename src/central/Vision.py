@@ -15,7 +15,7 @@ class Vision:
         self.grid = None
         self.graph = None
         self.homography = None
-        self.callback = None
+        self.solver_callback = None
         self.ap_paths = {}
         
         self.tasks = {}  # {id: {"start": (x,y), "end": (x,y), "deadline": int}}
@@ -40,8 +40,7 @@ class Vision:
             print("Cannot read frame, aborting...")
             return
         if not self.corners:
-            while not self.corners:
-                self.corners = self.find_corners(frame)
+            self.corners = self.find_corners(frame)
             self.grid = self.create_grid_with_obstacle_mask(frame)
             self.graph = self.create_graph_from_grid()
 
@@ -285,7 +284,7 @@ class Vision:
                         curr_dir = (dx/magnitude, dy/magnitude) if magnitude > 0 else (0, 0)
                         if prev_dir:
                             turn_angle = self.calculate_turn_angle(prev_dir, curr_dir)
-                            total_turn_time += turn_angle * self.TURN_DURATION_MS_PER_DEG
+                            total_turn_time += abs(turn_angle) * self.TURN_DURATION_MS_PER_DEG
                         prev_dir = curr_dir
                     matrix[i][j] = matrix[j][i] = int((base_time + total_turn_time) // 100)
                     print(f"Travel time between {locations[i]} and {locations[j]}: {matrix[i][j]} ms")
@@ -306,5 +305,16 @@ class Vision:
             return 0
         if prev_dir is None or curr_dir is None:
             return 0
-        angle_diff = abs(dir_to_angle(prev_dir) -  dir_to_angle(curr_dir))
-        return angle_diff if angle_diff < 180 else 360 - angle_diff
+        # angle_diff = abs(dir_to_angle(prev_dir) -  dir_to_angle(curr_dir))
+        # return angle_diff if angle_diff < 180 else 360 - angle_diff
+        
+        prev_angle = dir_to_angle(prev_dir)
+        curr_angle = dir_to_angle(curr_dir)
+        
+        # Angle difference in range [-180, 180]
+        angle_diff = ((curr_angle - prev_angle + 180) % 360) - 180
+        
+        if angle_diff > 0:
+            return f"TURNR+{abs(angle_diff)}"  # Right turn
+        else:
+            return f"TURNL+{abs(angle_diff)}"  # Left turn
