@@ -1,27 +1,25 @@
-import json
-import threading
-from time import sleep
+import sys
 import cv2
 import numpy as np
 import networkx as nx
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtWidgets import QApplication
+from UI import UI
 
 class Vision:
     def __init__(self, coordinator, camera_input=0):
         self.cap = cv2.VideoCapture(camera_input)
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera/video")
-        self.coordinator = coordinator
+
         self.corners = {}
+        self.homography = None
         self.grid = None
         self.graph = None
-        self.homography = None
-        self.solver_callback = None
         self.ap_paths = {}
         
-        self.tasks = {}  # {id: {"start": (x,y), "end": (x,y), "deadline": int}}
-        self.selected_task = None
-        self.edit_mode = None  # 'start' or 'end'
-        self.solver_status = 'idle'  # 'idle', 'running', 'completed'
+        self.solver_ran = False
         self.schedules = None
 
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_ARUCO_ORIGINAL)
@@ -34,6 +32,14 @@ class Vision:
         self.MOVE_DURATION_MS_PER_CM = 1
         self.TURN_DURATION_MS_PER_DEG = 1
 
+        self.app = QApplication(sys.argv)
+        self.ui = UI(self, coordinator)
+        self.ui.show()
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.run)
+        self.timer.start(30)
+
     def run(self):                    
         ret, frame = self.cap.read()
         if not ret or frame is None:
@@ -45,15 +51,18 @@ class Vision:
             self.graph = self.create_graph_from_grid()
 
         viz_frame = self.draw_grid_overlay(frame.copy())
-        if self.solver_status == 'completed' and self.schedules is not None:
+        if self.solver_ran and self.schedules is not None:
             viz_frame = self.draw_assigned_routes(viz_frame, self.schedules)
         else:
             viz_frame = self.draw_selected_waypoints(viz_frame)
 
-        return viz_frame
+        if viz_frame is not None:
+            height, width, _ = viz_frame.shape
+            bytes_per_line = 3 * width
+            qt_image = QImage(viz_frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+            self.ui.image_label.setPixmap(QPixmap.fromImage(qt_image))
 
     def pixel_to_grid(self, x, y):
-        """Convert pixel coordinates to grid coordinates"""
         if self.homography is not None:
             grid_pos = cv2.perspectiveTransform(np.array([[[x, y]]], dtype='float32'), self.homography)[0][0]
             grid_x = int(min(max(grid_pos[0] / self.GRID_SIZE_CM, 0), self.MAZE_WIDTH_CM - 1))
@@ -65,25 +74,42 @@ class Vision:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = self.aruco_detector.detectMarkers(gray)
 
-        corner_pixel_positions = {}
+        corner_pixels = {}
         corner_ids = {96: 'top_left', 97: 'top_right', 98: 'bottom_left', 99: 'bottom_right'}
         for i, marker_id in enumerate(ids.flatten()):
             if marker_id in corner_ids:
                 marker_corners = corners[i][0]
                 center = tuple(map(int, np.mean(marker_corners, axis=0)))
-                corner_pixel_positions[corner_ids[marker_id]] = center
+                corner_pixels[corner_ids[marker_id]] = center
 
-        if len(corner_pixel_positions) != 4:
-            print(f"Only found {len(corner_pixel_positions)} corners") 
+        if len(corner_pixels) != 4:
+            print(f"Only found {len(corner_pixels)} corners") 
             return
         print("Found 4 corners")
 
-        src_pts = np.float32([corner_pixel_positions['top_left'], corner_pixel_positions['top_right'], 
-                              corner_pixel_positions['bottom_left'], corner_pixel_positions['bottom_right']])
+        src_pts = np.float32([corner_pixels['top_left'], corner_pixels['top_right'], 
+                              corner_pixels['bottom_left'], corner_pixels['bottom_right']])
         dest_pts = np.float32([[0, 0], [self.MAZE_WIDTH_CM * self.GRID_SIZE_CM, 0],
                                [0, self.MAZE_HEIGHT_CM * self.GRID_SIZE_CM], [self.MAZE_WIDTH_CM * self.GRID_SIZE_CM, self.MAZE_HEIGHT_CM * self.GRID_SIZE_CM]])
         self.homography = cv2.getPerspectiveTransform(src_pts, dest_pts)
-        return corner_pixel_positions
+        return corner_pixels
+
+    def find_robots(self, frame):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        marker_corners, ids, _ = self.aruco_detector.detectMarkers(gray)
+        robots = {}
+        if ids is not None and self.homography is not None:
+            rows, cols = int(self.MAZE_HEIGHT_CM), int(self.MAZE_WIDTH_CM)
+            for i in range(len(ids)):
+                marker_id = ids[i][0]
+                corners = marker_corners[i][0]
+                center = np.mean(corners, axis=0)
+                if marker_id in [0, 1]:
+                        grid_pos = cv2.perspectiveTransform(np.array([[center]]), self.homography)[0][0]
+                        grid_x = int(min(max(grid_pos[0] / self.GRID_SIZE_CM, 0), cols - 1))
+                        grid_y = int(min(max(grid_pos[1] / self.GRID_SIZE_CM, 0), rows - 1))
+                        robots[marker_id] = (grid_y, grid_x) # (row, col) for grid indexing
+        return robots
 
     def create_grid_with_obstacle_mask(self, frame):
         if self.homography is None:
@@ -117,25 +143,9 @@ class Vision:
             print(f"Error resizing obstacle mask: {e}")
         return grid
 
-    def find_robots(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.aruco_detector.detectMarkers(gray)
-        robots = {}
-        if ids is not None and self.homography is not None:
-            rows, cols = int(self.MAZE_HEIGHT_CM), int(self.MAZE_WIDTH_CM)
-            for i in range(len(ids)):
-                marker_id = ids[i][0]
-                marker_corners = corners[i][0]
-                center = np.mean(marker_corners, axis=0)
-                if marker_id in [0, 1]:
-                        grid_pos = cv2.perspectiveTransform(np.array([[center]]), self.homography)[0][0]
-                        grid_x = int(min(max(grid_pos[0] / self.GRID_SIZE_CM, 0), cols - 1))
-                        grid_y = int(min(max(grid_pos[1] / self.GRID_SIZE_CM, 0), rows - 1))
-                        robots[marker_id] = (grid_y, grid_x) # (row, col) for grid indexing
-        return robots
-
     def draw_grid_overlay(self, frame):
         if self.homography is None:
+            print("Homography not found, find corners and transform perspective before calling this function")
             return frame
         
         # Pink color in BGR for grid lines, lime boxes for unreachable
@@ -189,7 +199,7 @@ class Vision:
         if self.homography is None:
             return viz_frame
         
-        for i, task in self.tasks.items():
+        for i, task in self.ui.task_coords.items():
             if task['start']:
                 start_pixel = cv2.perspectiveTransform(np.array([[[task['start'][1] * self.GRID_SIZE_CM, task['start'][0] * self.GRID_SIZE_CM]]], dtype='float32'), cv2.invert(self.homography)[1])[0][0]
                 cv2.circle(viz_frame, tuple(map(int, start_pixel)), 5, (0,255,0), -1)
@@ -203,12 +213,19 @@ class Vision:
     def draw_assigned_routes(self, frame, schedules):
         if schedules is None or self.graph is None:
             return frame
-        colors = [(0, 255, 0), (255, 165, 0)]  # Green and orange for different robots
+        
+        base_colors = [(0, 255, 0), (255, 165, 0)]  # Green and orange for each robot
         viz_frame = frame.copy()
+        
         for robot_id, schedule in enumerate(schedules):
-            color = colors[robot_id % len(colors)]
-            # Draw path between consecutive waypoints in schedule
+            base_color = base_colors[robot_id]
+
+            steps = len(schedule) - 1
+            shading_step = 0.7 / steps if steps > 0 else 0  
+            
             for i in range(len(schedule) - 1):
+                darkness = 1.0 - (i * shading_step)
+                color = tuple(int(c * darkness) for c in base_color)
                 try:
                     if schedule[i]['location'] == schedule[i + 1]['location']:
                         pt = cv2.perspectiveTransform(np.array([[[schedule[i]['location'][1] * self.GRID_SIZE_CM, schedule[i]['location'][0] * self.GRID_SIZE_CM]]], dtype='float32'), cv2.invert(self.homography)[1])[0][0]
@@ -313,8 +330,4 @@ class Vision:
         
         # Angle difference in range [-180, 180]
         angle_diff = ((curr_angle - prev_angle + 180) % 360) - 180
-        
-        if angle_diff > 0:
-            return f"TURNR+{abs(angle_diff)}"  # Right turn
-        else:
-            return f"TURNL+{abs(angle_diff)}"  # Left turn
+        return angle_diff

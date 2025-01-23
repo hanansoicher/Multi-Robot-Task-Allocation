@@ -1,34 +1,33 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox, QScrollArea)
 import threading
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
-
-class SignalEmitter(QObject):
-  solver_completed = pyqtSignal(bool)
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QFrame, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSpinBox, QScrollArea)
 
 class UI(QMainWindow):
-  def __init__(self, vision):
+  def __init__(self, vision, coordinator):
     super().__init__()
     self.vision = vision
+    self.coordinator = coordinator
+    self.task_coords = {}  # {id: {"start": (x,y), "end": (x,y), "deadline": int}}
+    self.selected_task = None
+    self.edit_mode = None
+    
     self.setWindowTitle('Maze UI')
     self.setGeometry(100, 100, 1200, 800)
-
+    
     main_widget = QWidget()
     self.setCentralWidget(main_widget)
-    main_layout = QHBoxLayout(main_widget) 
-
-    camera_container = QWidget()
-    camera_layout = QVBoxLayout(camera_container)
+    main_layout = QHBoxLayout(main_widget)
+    
     self.image_label = QLabel()
     self.image_label.setMouseTracking(True)
     self.image_label.installEventFilter(self)
-    camera_layout.addWidget(self.image_label)
-    main_layout.addWidget(camera_container)
-
+    main_layout.addWidget(self.image_label)
+    
     task_panel = QWidget()
     task_panel.setFixedWidth(300)
     task_layout = QVBoxLayout(task_panel)
-
+    
     add_task_btn = QPushButton('Add Task')
     add_task_btn.clicked.connect(self.add_task)
     task_layout.addWidget(add_task_btn)
@@ -41,43 +40,32 @@ class UI(QMainWindow):
     task_layout.addWidget(scroll)
     
     self.solver_btn = QPushButton('Run Solver')
-    self.solver_btn.clicked.connect(self.run_solver)
-    task_layout.addWidget(self.solver_btn)
-    self.signals = SignalEmitter()
-    self.signals.solver_completed.connect(self.on_solver_completed)
-
     self.send_instructions_btn = QPushButton('Send Instructions')
     self.send_instructions_btn.setEnabled(False)
-    self.send_instructions_btn.clicked.connect(self.send_instructions)
+    task_layout.addWidget(self.solver_btn)
     task_layout.addWidget(self.send_instructions_btn)
-
     main_layout.addWidget(task_panel)
+    
+    self.solver_btn.clicked.connect(self.run_solver)
+    self.send_instructions_btn.clicked.connect(self.send_instructions)
 
-    self.update_task_display()
 
   def eventFilter(self, source, event):
-    if (source is self.image_label and event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton and self.vision.edit_mode):
-      x = event.pos().x()
-      y = event.pos().y()
-      
-      grid_pos = self.vision.pixel_to_grid(x, y)
-      
-      if grid_pos is not None and self.vision.selected_task is not None:
-        if self.vision.edit_mode == 'start':
-            self.vision.tasks[self.vision.selected_task]['start'] = grid_pos
-        elif self.vision.edit_mode == 'end':
-            self.vision.tasks[self.vision.selected_task]['end'] = grid_pos
-        
-        self.vision.edit_mode = None
-        self.vision.selected_task = None
-        
+    if (source is self.image_label and event.type() == event.MouseButtonPress and event.button() == Qt.LeftButton and self.edit_mode):      
+      grid_pos = self.vision.pixel_to_grid(event.pos().x(), event.pos().y())
+      if grid_pos is not None and self.selected_task is not None:
+        if self.edit_mode == 'start':
+            self.task_coords[self.selected_task]['start'] = grid_pos
+        elif self.edit_mode == 'end':
+            self.task_coords[self.selected_task]['end'] = grid_pos
+        self.edit_mode = None
+        self.selected_task = None
         self.update_task_display()
-    
     return super().eventFilter(source, event)
 
   def add_task(self):
-    task_id = len(self.vision.tasks)
-    self.vision.tasks[task_id] = {
+    task_id = len(self.task_coords)
+    self.task_coords[task_id] = {
         "id": task_id,
         "start": None,
         "end": None,
@@ -91,7 +79,7 @@ class UI(QMainWindow):
       if widget:
         widget.deleteLater()
 
-    for task_id, task in self.vision.tasks.items():
+    for task_id, task in self.task_coords.items():
       task_widget = QWidget()
       task_widget.setFixedHeight(180)
       task_layout = QVBoxLayout(task_widget)
@@ -106,8 +94,7 @@ class UI(QMainWindow):
       task_label = QLabel(f'Task {task_id}')
       remove_btn = QPushButton('Remove')
       remove_btn.setFixedSize(80, 30)
-      remove_btn.clicked.connect(lambda checked, x=task_id: self.remove_task(x))
-      
+      remove_btn.clicked.connect(lambda checked, x=task_id: self.remove_task(x))      
       header_layout.addWidget(task_label)
       header_layout.addWidget(remove_btn)
       task_layout.addWidget(header_widget)
@@ -118,10 +105,9 @@ class UI(QMainWindow):
       start_layout.setContentsMargins(0, 0, 0, 0)
       
       start_label = QLabel('Start Point:')
-      start_btn = QPushButton(str(task['start']) if task['start'] else 'Set Start')
+      start_btn = QPushButton(str(task['start']) if task['start'] else 'Set Pickup')
       start_btn.setFixedSize(120, 30)
-      start_btn.clicked.connect(lambda checked, x=task_id: self.edit_waypoint(x, 'start'))
-      
+      start_btn.clicked.connect(lambda checked, x=task_id: self.edit_waypoint(x, 'start'))      
       start_layout.addWidget(start_label)
       start_layout.addWidget(start_btn)
       task_layout.addWidget(start_widget)
@@ -132,7 +118,7 @@ class UI(QMainWindow):
       end_layout.setContentsMargins(0, 0, 0, 0)
       
       end_label = QLabel('End Point:')
-      end_btn = QPushButton(str(task['end']) if task['end'] else 'Set End')
+      end_btn = QPushButton(str(task['end']) if task['end'] else 'Set Dropoff')
       end_btn.setFixedSize(120, 30)  # Fixed size for end button
       end_btn.clicked.connect(lambda checked, x=task_id: self.edit_waypoint(x, 'end'))
       
@@ -157,7 +143,7 @@ class UI(QMainWindow):
       task_layout.addWidget(deadline_widget)
       
       # Add line separator between tasks
-      if task_id < len(self.vision.tasks) - 1:
+      if task_id < len(self.task_coords) - 1:
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setFrameShadow(QFrame.Sunken)
@@ -166,45 +152,41 @@ class UI(QMainWindow):
     self.task_layout.addStretch()
 
   def remove_task(self, task_id):
-    if task_id in self.vision.tasks:
-      del self.vision.tasks[task_id]
+    if task_id in self.task_coords:
+      del self.task_coords[task_id]
       new_tasks = {}
-      for i, (_, task) in enumerate(sorted(self.vision.tasks.items())):
+      for i, (_, task) in enumerate(sorted(self.task_coords.items())):
           new_tasks[i] = task
-      self.vision.tasks = new_tasks
+      self.task_coords = new_tasks
     self.update_task_display()
 
   def edit_waypoint(self, task_id, mode):
-    self.vision.selected_task = task_id
-    self.vision.edit_mode = mode
+    self.selected_task = task_id
+    self.edit_mode = mode
 
   def update_deadline(self, task_id, deadline):
-    if task_id in self.vision.tasks:
-      self.vision.tasks[task_id]['deadline'] = deadline
-
-  def on_solver_completed(self, success):
-    if success:
-      self.vision.solver_status = 'completed'
-      self.send_instructions_btn.setEnabled(True)
-    else:
-      self.vision.solver_status = 'idle'
-    self.solver_btn.setEnabled(True)
+    if task_id in self.task_coords:
+      self.task_coords[task_id]['deadline'] = deadline    
 
   def run_solver(self):
-    self.vision.solver_status = 'running'
     self.solver_btn.setEnabled(False)
     def solver_thread():
-      schedules = self.vision.callback()
-      self.signals.solver_completed.emit(bool(schedules))
+      schedules = self.coordinator.run_solver()
+      if schedules is not None:
+        self.vision.solver_ran = True
+        self.send_instructions_btn.setEnabled(True)
+      else:
+        self.vision.solver_ran = False
+      self.solver_btn.setEnabled(True)
     threading.Thread(target=solver_thread, daemon=True).start()
 
   def send_instructions(self):
-    if self.vision.solver_status == 'completed':
-      instructions_set = self.vision.coordinator.generate_p2p_movement_instructions(self.vision.schedules)
-      self.vision.coordinator.send_instructions(instructions_set)
+    if self.vision.solver_ran:
+      instructions_set = self.coordinator.generate_p2p_movement_instructions(self.vision.schedules)
+      self.coordinator.send_instructions(instructions_set)
 
-def create_ui(vision):
-  app = QApplication(sys.argv)
-  window = UI(vision)
-  window.show()
-  return app, window
+# def create_ui(vision, coordinator):
+#   app = QApplication(sys.argv)
+#   ui = UI(vision, coordinator)
+#   ui.show()
+#   return app, ui

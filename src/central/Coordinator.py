@@ -4,50 +4,29 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 from SMrTa.MRTASolver import MRTASolver, Robot
 from SMrTa.MRTASolver.objects import Task
 from Vision import Vision 
-import threading
-import json
 import networkx as nx
-from UI import create_ui
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QPixmap, QImage
-import cv2
+
 # from RobotController import RobotController
 
 class Coordinator:
     def __init__(self):
         video = "img/test_maze.mp4"
-        self.vg = Vision(self, video)
-        self.vg.solver_callback = self.run_solver
-
-        self.app, self.ui = create_ui(self.vg)
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)  # 30ms = ~33fps
-        self.app.exec_()
-
-        self.vg.cap.release()
-
-    def update_frame(self):
-        frame = self.vg.run()
-        if frame is not None:
-            height, width, _ = frame.shape
-            bytes_per_line = 3 * width
-            qt_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
-            self.ui.image_label.setPixmap(QPixmap.fromImage(qt_image))
+        self.vision = Vision(self, video)
+        self.vision.app.exec_()
+        self.vision.cap.release()
 
     def run_solver(self):
-        _, frame = self.vg.cap.read()
-        robot_coords = self.vg.find_robots(frame)
+        _, frame = self.vision.cap.read()
+        robot_coords = self.vision.find_robots(frame)
 
         # with open('devices.json', 'r') as f:
         #     robot_configs = json.load(f)['devices']
         # self.robots = {f"robot {i+1}": RobotController( robot['name'], robot['address'], robot['write_uuid']) for i, robot in enumerate(robot_configs['devices'])}
 
         agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
-        self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vg.tasks.values()]
+        self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vision.ui.task_coords.values()]
         self.action_points = [robot_coords[i] for i in range(len(robot_coords))]
         
-        # Add all task pickup/dropoff coordinates as action_points
         for task in self.tasks:
             if task.start not in self.action_points:
                 self.action_points.append(task.start)
@@ -70,7 +49,7 @@ class Coordinator:
             theory='QF_UFBV', 
             agents=agents,
             tasks_stream=[[self.tasks, 0]],
-            room_graph=self.vg.create_travel_time_matrix(self.action_points),
+            room_graph=self.vision.create_travel_time_matrix(self.action_points),
             capacity=1,
             num_aps=len(self.action_points),
             aps_list=[len(self.action_points)],
@@ -105,7 +84,6 @@ class Coordinator:
                         location = self.action_points[action_id]
                         action_type = "WAIT"
                     else:
-                        # Task-related action
                         task_idx = (action_id - num_robots) // 2
                         is_pickup = ((action_id - num_robots) % 2 == 0)
                         if is_pickup:
@@ -133,25 +111,23 @@ class Coordinator:
                 for step in schedule:
                     task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
                     print(f"{step['time']} | {step['location']} | {step['action']} | {task_str}") 
-            self.vg.schedules = robot_schedules
+            self.vision.schedules = robot_schedules
             return robot_schedules
 
     def generate_p2p_movement_instructions(self, robot_schedules):
         instructions_set = []
-        
         for robot_id, rschedule in enumerate(robot_schedules):
             if not rschedule:
                 instructions_set.append([])
                 continue
-                
             instructions = []
             prev_dir = None
             for i in range(len(rschedule)-1):
                 next_action = rschedule[i+1]['action']
-                path = self.vg.ap_paths.get((rschedule[i]['location'], rschedule[i+1]['location']))
+                path = self.vision.ap_paths.get((rschedule[i]['location'], rschedule[i+1]['location']))
                 if path is None:
-                    path = nx.shortest_path(self.vg.graph, source=rschedule[i]['location'], target=rschedule[i+1]['location'], weight='weight')
-                    self.vg.ap_paths[rschedule[i]['location'], rschedule[i+1]['location']] = path
+                    path = nx.shortest_path(self.vision.graph, source=rschedule[i]['location'], target=rschedule[i+1]['location'], weight='weight')
+                    self.vision.ap_paths[rschedule[i]['location'], rschedule[i+1]['location']] = path
                 if not path:
                     continue
                 if len(path) > 1:
@@ -162,7 +138,7 @@ class Coordinator:
                         magnitude = max(abs(dx), abs(dy))
                         curr_dir = (dx/magnitude, dy/magnitude) if magnitude > 0 else (0, 0)
                         
-                        turn_angle = self.vg.calculate_turn_angle(prev_dir, curr_dir)
+                        turn_angle = self.vision.calculate_turn_angle(prev_dir, curr_dir)
                         if turn_angle > 0:
                             instructions.append(f"RIGHT+{abs(turn_angle)}")
                         elif turn_angle < 0:
@@ -180,9 +156,8 @@ class Coordinator:
                             else:
                                 break
 
-                        move_duration = nx.shortest_path_length(self.vg.graph, source=path[step], target=path[step+n], weight='weight') * self.vg.MOVE_DURATION_MS_PER_CM
+                        move_duration = nx.shortest_path_length(self.vision.graph, source=path[step], target=path[step+n], weight='weight') * self.vision.MOVE_DURATION_MS_PER_CM
                         instructions.append(f"MOVE+{move_duration}")
-                        
                         step += n
                         prev_dir = curr_dir
 
@@ -193,11 +168,10 @@ class Coordinator:
 
     def send_instructions(self, instructions_set):
         for i, instructions in enumerate(instructions_set):
-            robot_id = f"robot {i+1}"
             for instruction in instructions:
                 # self.robots[robot_id].send_command(instruction)
-                print(f"Sent instruction {instruction} to {robot_id}")
-            print(f"Finished sending instructions to {robot_id}")
+                print(f"Sent instruction {instruction} to robot {i+1}")
+            print(f"Finished sending instructions to robot {i+1}")
 
 def main():
     Coordinator()
