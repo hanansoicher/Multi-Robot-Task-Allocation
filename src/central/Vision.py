@@ -17,7 +17,7 @@ class Vision:
         self.homography = None
         self.grid = None
         self.graph = None
-        self.ap_paths = {}
+        self.solver_paths = {}
         
         self.solver_ran = False
         self.schedules = None
@@ -237,7 +237,7 @@ class Vision:
                         cv2.putText(viz_frame, label, (int(pt[0] + 10), int(pt[1] + 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
                         continue
 
-                    path = self.ap_paths.get((schedule[i]['location'], schedule[i + 1]['location']))
+                    path = self.solver_paths.get((schedule[i]['location'], schedule[i + 1]['location']))
                     if not path:
                         path = nx.shortest_path(self.graph, schedule[i]['location'], schedule[i + 1]['location'], weight='weight')
                     for k in range(len(path) - 1):
@@ -288,8 +288,8 @@ class Vision:
             for j in range(i+1, n):
                 try:
                     path = nx.shortest_path(self.graph, locations[i], locations[j], weight='weight')
-                    self.ap_paths[locations[i], locations[j]] = path
-                    self.ap_paths[locations[j], locations[i]] = list(reversed(path))
+                    self.solver_paths[locations[i], locations[j]] = path
+                    self.solver_paths[locations[j], locations[i]] = list(reversed(path))
                     base_time = nx.shortest_path_length(self.graph, locations[i], locations[j], weight='weight') * self.MOVE_DURATION_MS_PER_CM
                     prev_dir = None
                     # Include worst case initial turn (180 degrees) in case robot needs to fully turn around to start path
@@ -328,6 +328,5 @@ class Vision:
         prev_angle = dir_to_angle(prev_dir)
         curr_angle = dir_to_angle(curr_dir)
         
-        # Angle difference in range [-180, 180]
         angle_diff = ((curr_angle - prev_angle + 180) % 360) - 180
         return angle_diff

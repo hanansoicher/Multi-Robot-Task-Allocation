@@ -2,11 +2,12 @@ import asyncio
 import logging
 import time
 import json
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient, BleakScanner, BLEDevice
 
 class RobotController:
-    def __init__(self, device_name: str, device_address: str, characteristic_uuid: str, reconnect_time=2):
+    def __init__(self, bledevice: BLEDevice, device_name: str, device_address: str, characteristic_uuid: str, reconnect_time=2):
         """Initialize the Robot class with the Bluetooth device address."""
+        self.bledevice = bledevice
         self.device_name = device_name
         self.device_address = device_address
         self.characteristic_uuid = characteristic_uuid
@@ -16,7 +17,7 @@ class RobotController:
         self.waiting = False
         self.connected = False
         self.reconnect_time = reconnect_time
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger()
         self.response_future = None
         self.command_processor_task = None
         print("address", device_address, "name", device_name)
@@ -25,7 +26,7 @@ class RobotController:
         """Connect to the robot with retry mechanism"""
         for i in range(retries):
             try:
-                self.client = BleakClient(self.device_address)
+                self.client = BleakClient(self.bledevice)
                 await self.client.connect()
                 self.logger.info(f"Connected to {self.device_address}")
                 self.command_processor_task = asyncio.create_task(self._process_command_queue())

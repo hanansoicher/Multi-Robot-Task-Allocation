@@ -5,8 +5,8 @@ from SMrTa.MRTASolver import MRTASolver, Robot
 from SMrTa.MRTASolver.objects import Task
 from Vision import Vision 
 import networkx as nx
-
-# from RobotController import RobotController
+import json
+from RobotController import RobotController
 
 class Coordinator:
     def __init__(self):
@@ -19,9 +19,9 @@ class Coordinator:
         _, frame = self.vision.cap.read()
         robot_coords = self.vision.find_robots(frame)
 
-        # with open('devices.json', 'r') as f:
-        #     robot_configs = json.load(f)['devices']
-        # self.robots = {f"robot {i+1}": RobotController( robot['name'], robot['address'], robot['write_uuid']) for i, robot in enumerate(robot_configs['devices'])}
+        with open('devices.json', 'r') as f:
+            robot_configs = json.load(f)['devices']
+        self.robots = {f"robot {i+1}": RobotController( robot['name'], robot['address'], robot['write_uuid']) for i, robot in enumerate(robot_configs['devices'])}
 
         agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
         self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vision.ui.task_coords.values()]
@@ -124,10 +124,10 @@ class Coordinator:
             prev_dir = None
             for i in range(len(rschedule)-1):
                 next_action = rschedule[i+1]['action']
-                path = self.vision.ap_paths.get((rschedule[i]['location'], rschedule[i+1]['location']))
+                path = self.vision.solver_paths.get((rschedule[i]['location'], rschedule[i+1]['location']))
                 if path is None:
                     path = nx.shortest_path(self.vision.graph, source=rschedule[i]['location'], target=rschedule[i+1]['location'], weight='weight')
-                    self.vision.ap_paths[rschedule[i]['location'], rschedule[i+1]['location']] = path
+                    self.vision.solver_paths[rschedule[i]['location'], rschedule[i+1]['location']] = path
                 if not path:
                     continue
                 if len(path) > 1:
