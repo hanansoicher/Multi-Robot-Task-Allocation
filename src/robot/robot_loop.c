@@ -75,8 +75,8 @@ static RobotState robot_state = {
     .current_angle = 0.0f,
     .total_distance = 0.0f,
     .last_gyro_read_time = 0,
-    .last_gyro_value = 0.0f
-    .last_left_encoder = 0.0f
+    .last_gyro_value = 0.0f,
+    .last_left_encoder = 0.0f,
     .last_right_encoder = 0.0f,
 };
 
@@ -116,8 +116,8 @@ bool execute_move(float distance_cm) {
         float dt = (current_time - last_update_time) / 1000.0f;
         if (dt < 0.001f) continue;
         last_update_time = current_time;
-        
-        if (abs((robot_state.last_right_encoder - start_right + robot_state.last_left_encoder - start_left) / 2) >= abs(target_ticks)) {
+        int mean_diff = (robot_state.last_right_encoder - start_right + robot_state.last_left_encoder - start_left) / 2;
+        if (abs(mean_diff) >= abs(target_ticks)) {
             motors_set_speeds(0, 0);
             printf("Move complete");
             return true;
@@ -141,7 +141,7 @@ bool execute_move(float distance_cm) {
         
         if (current_time - last_debug_time > 500) {
             last_debug_time = current_time;
-            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, avg_diff, target_ticks);
+            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, mean_diff, target_ticks);
         }
         
         sleep_ms(5);

@@ -1,3 +1,6 @@
 [submodule "SMrTa"]
 	path = SMrTa
 	url = https://github.com/victoria-tuck/SMrTa
+[submodule "lib/pico-sdk"]
+	path = lib/pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk.git

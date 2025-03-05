@@ -1,12 +1,12 @@
 import sys  
 import os 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-from SMrTa.MRTASolver import MRTASolver, Robot
-from SMrTa.MRTASolver.objects import Task
+from lib.SMrTa.MRTASolver import MRTASolver, Robot
+from lib.SMrTa.MRTASolver.objects import Task
 from Vision import Vision 
 import networkx as nx
 import json
-from RobotController import RobotController
+from robot.RobotController import RobotController
 
 class Coordinator:
     def __init__(self):
@@ -169,7 +169,7 @@ class Coordinator:
     def send_instructions(self, instructions_set):
         for i, instructions in enumerate(instructions_set):
             for instruction in instructions:
-                # self.robots[robot_id].send_command(instruction)
+                self.robots[i].send_command(instruction)
                 print(f"Sent instruction {instruction} to robot {i+1}")
             print(f"Finished sending instructions to robot {i+1}")
 
