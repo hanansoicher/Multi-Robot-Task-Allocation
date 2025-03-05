@@ -1,21 +1,21 @@
 This project implements a dynamic task allocation system for a team of Pololu 3pi+ robots given a set of tasks (Picking up and dropping off objects with deadlines) in a constrained environment, utilizing an SMT-based Multi Robot Task Allocation library (SMrTa) developed by UC Berkeley post-graduate researchers. 
 
-Setup
-git clone --recurse-submodules
-git submodule update --init --recursive
-Add files in lib/submodule_edits
+Setup:        
+git clone --recurse-submodules    
+git submodule update --init --recursive    
+Add files in lib/submodule_edits    
 
-To build robot_loop:
-mkdir build && cd build
-cmake -G "Unix Makefiles" ..
-make
+To build robot_loop:        
+mkdir build && cd build    
+cmake -G "Unix Makefiles" ..    
+make    
 
-For Coordinator:
-python -m venv venv
-source venv/bin/activate   (venv\Scripts\activate.ps1 on Windows)
-pip install -r requirements.txt
+For Coordinator:        
+python -m venv venv    
+source venv/bin/activate   (venv\Scripts\activate.ps1 on Windows)    
+pip install -r requirements.txt    
 
-Flash robot_loop.ulf2 to robots, place in environment, then run Coordinator.py from venv
+Flash robot_loop.ulf2 to robots, place in environment, then run Coordinator.py from venv    
 
 
 Features:
