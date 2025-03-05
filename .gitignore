@@ -50,5 +50,9 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
 img
+build
+.vscode
+.venv
 __pycache__
