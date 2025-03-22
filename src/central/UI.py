@@ -56,12 +56,14 @@ class UI(QMainWindow):
       if grid_pos is not None and self.selected_task is not None:
         if self.edit_mode == 'start':
             self.task_coords[self.selected_task]['start'] = grid_pos
+            self.edit_mode = 'end'
         elif self.edit_mode == 'end':
             self.task_coords[self.selected_task]['end'] = grid_pos
-        self.edit_mode = None
-        self.selected_task = None
+            self.edit_mode = None
+            self.selected_task = None
         self.update_task_display()
     return super().eventFilter(source, event)
+
 
   def add_task(self):
     task_id = len(self.task_coords)
@@ -71,6 +73,8 @@ class UI(QMainWindow):
         "end": None,
         "deadline": 10000
     }
+    self.selected_task = task_id
+    self.edit_mode = 'start'
     self.update_task_display()
 
   def update_task_display(self):

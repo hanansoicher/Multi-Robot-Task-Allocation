@@ -1,6 +1,10 @@
-opencv-python
+cv2
 numpy
 networkx
 PyQt5
 z3-solver
 bleak
+pydantic
+fastapi
+uvicorn
+asyncio
