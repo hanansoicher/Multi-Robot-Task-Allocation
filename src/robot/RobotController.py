@@ -10,7 +10,6 @@ class RobotController(BluetoothAPI):
         """Initialize the Robot controller with the Bluetooth device address."""
         super().__init__(device_address, device_name, characteristic_uuid, reconnect_time)
         self.speed = 1000
-        self.calibration = 1.0
 
     def connect(self):
         """Connect to the robot"""

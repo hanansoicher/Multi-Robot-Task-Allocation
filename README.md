@@ -12,7 +12,7 @@ make
 
 For Coordinator:        
 python -m venv venv    
-source venv/bin/activate   (venv\Scripts\activate.ps1 on Windows)    
+source venv/bin/activate   (venv/bin/activate.ps1 on Windows)    
 pip install -r requirements.txt    
 
 Flash robot_loop.ulf2 to robots, place in environment, then run Coordinator.py from venv    

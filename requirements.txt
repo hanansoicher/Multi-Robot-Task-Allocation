@@ -1,10 +1,13 @@
-cv2
-numpy
+opencv-python
 networkx
 PyQt5
-z3-solver
 bleak
 pydantic
 fastapi
 uvicorn
 asyncio
+Dijkstar==2.6.0
+ipython==8.12.3
+numpy==1.24.4
+z3_solver==4.12.2.0
+requests

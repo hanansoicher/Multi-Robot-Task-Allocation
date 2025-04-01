@@ -14,9 +14,9 @@ import subprocess
 import time
 import socket
 
-class HTTPCoordinator:
+class Coordinator:
     def __init__(self):
-        self.start_http_server()
+        # self.start_server()
         
         with open('devices.json', 'r') as f:
             robot_configs = json.load(f)['devices']
@@ -29,27 +29,27 @@ class HTTPCoordinator:
             ) for i, robot in enumerate(robot_configs)
         }
 
-        self.connect_robots()
+        # self.connect_robots()
 
         # video = "img/test_maze.mp4"
-        # video = "img/gridrvv.mp4"
+        video = "img/reo.mp4"
         # video = "img/emptygrid.mp4"
-        video=0
-        self.vision = Vision(self, video, initialize_tape=False)
+        # video=0
+        self.vision = Vision(self, video)
         self.vision.app.exec_()
 
         self.vision.cap.release()
-        self.stop_http_server()
+        self.stop_server()
 
-    def start_http_server(self):
+    def start_server(self):
         """Start the FastAPI server as a subprocess"""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
                 s.bind(("127.0.0.1", 8000))
                 s.close()
-                print("Starting HTTP server...")
-                server_path = os.path.join(os.path.dirname(__file__), 'HTTPServer.py')
+                print("Starting server...")
+                server_path = os.path.join(os.path.dirname(__file__), 'Server.py')
                 print(f"Server path: {server_path}")
                 print(f"Does server file exist: {os.path.exists(server_path)}")
                 
@@ -65,16 +65,16 @@ class HTTPCoordinator:
                 print(f"Server process status: {'Running' if self.server_process.poll() is None else 'Exited with code ' + str(self.server_process.poll())}")
             except socket.error as e:
                 print(f"Socket error: {e}")
-                print("HTTP server is already running on port 8000")
+                print("Server is already running on port 8000")
                 self.server_process = None
         except Exception as e:
-            print(f"Error starting HTTP server: {e}")
+            print(f"Error starting server: {e}")
             self.server_process = None
 
-    def stop_http_server(self):
+    def stop_server(self):
         """Stop the FastAPI server subprocess if it was started by us"""
         if hasattr(self, 'server_process') and self.server_process:
-            print("Stopping HTTP server...")
+            print("Stopping server...")
             self.server_process.terminate()
             try:
                 self.server_process.wait(timeout=5)
@@ -97,15 +97,14 @@ class HTTPCoordinator:
     def run_solver(self):
         """Run the solver algorithm"""
         _, frame = self.vision.cap.read()
-        cv2.imwrite("debug_frame.jpg", frame)
         r_coords = self.vision.find_robots(frame)
         robot_coords = []
         for robot_name, r_pos in r_coords.items():
-            robot_coords.append(self.vision.find_closest_intersection(r_pos))
+            robot_coords.append(r_pos)
         print(robot_coords)
-        # if len(robot_coords) == 0:
-        #     robot_coords = [(469, 469)]
-        agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(1)])]
+        if len(robot_coords) == 0:
+            robot_coords = [(4, 4)]
+        agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
         
         self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vision.ui.task_coords.values()]
         
@@ -286,7 +285,7 @@ class HTTPCoordinator:
         print(f"Completed instructions for robot {robot_id}")
 
 def main():
-    HTTPCoordinator()
+    Coordinator()
 
 if __name__ == '__main__':
     main()

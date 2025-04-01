@@ -13,6 +13,12 @@ class Vision:
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera/video")
 
+        self.MAZE_WIDTH_CM = 50
+        self.MAZE_HEIGHT_CM = 50
+        self.GRID_SIZE_CM = 1
+        self.MOVE_DURATION_MS_PER_CM = 1
+        self.TURN_DURATION_MS_PER_DEG = 1
+
         self.corners = {}
         self.homography = None
         self.grid = None
@@ -25,12 +31,6 @@ class Vision:
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_ARUCO_ORIGINAL)
         self.aruco_params = cv2.aruco.DetectorParameters()
         self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
-
-        self.MAZE_WIDTH_CM = 72
-        self.MAZE_HEIGHT_CM = 45
-        self.GRID_SIZE_CM = 1
-        self.MOVE_DURATION_MS_PER_CM = 1
-        self.TURN_DURATION_MS_PER_DEG = 1
 
         self.app = QApplication(sys.argv)
         self.ui = UI(self, coordinator)
@@ -64,9 +64,10 @@ class Vision:
         
         if self.homography is not None:
             self.grid = self.update_obstacle_grid(frame)
-            self.graph = self.update_graph(self.grid)
+            self.graph = self.update_graph()
 
         viz_frame = self.draw_grid_overlay(frame.copy())
+        viz_frame = self.draw_robots(viz_frame, self.find_robots(frame))
         if self.solver_ran and self.schedules is not None:
             viz_frame = self.draw_assigned_routes(viz_frame, self.schedules)
         else:
@@ -118,45 +119,12 @@ class Vision:
                 marker_id = ids[i][0]
                 corners = marker_corners[i][0]
                 center = np.mean(corners, axis=0)
-                if marker_id in [0, 1]:
+                if marker_id in [0, 1, 2, 3]:
                         grid_pos = cv2.perspectiveTransform(np.array([[center]]), self.homography)[0][0]
                         grid_x = int(min(max(grid_pos[0] / self.GRID_SIZE_CM, 0), cols - 1))
                         grid_y = int(min(max(grid_pos[1] / self.GRID_SIZE_CM, 0), rows - 1))
                         robots[marker_id] = (grid_y, grid_x) # (row, col) for grid indexing
         return robots
-
-    # def create_grid_with_obstacle_mask(self, frame):
-    #     if self.homography is None:
-    #         print("Homography not found, find corners and transform perspective before calling this function")
-    #         return None
-
-    #     warped = cv2.warpPerspective(frame, self.homography, (int(self.MAZE_WIDTH_CM * self.GRID_SIZE_CM), int(self.MAZE_HEIGHT_CM * self.GRID_SIZE_CM)))
-    #     _, black_tape_mask = cv2.threshold(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY), 60, 255, cv2.THRESH_BINARY_INV)
-    #     kernel_close = np.ones((3, 3), np.uint8)
-    #     black_tape_mask = cv2.morphologyEx(black_tape_mask, cv2.MORPH_CLOSE, kernel_close)
-        
-    #     rows = int(self.MAZE_HEIGHT_CM)
-    #     cols = int(self.MAZE_WIDTH_CM)
-        
-    #     grid = np.ones((rows, cols), dtype=np.uint8)
-    #     robot_coords = self.find_robots(frame)
-        
-    #     robot_mask = np.zeros((rows, cols), dtype=np.uint8)
-    #     for robot_id, (robot_row, robot_col) in robot_coords.items():
-    #         robot_radius = int(5 / self.GRID_SIZE_CM)
-    #         cv2.circle(robot_mask, (robot_col, robot_row), robot_radius, 1, -1)
-        
-    #     try:
-    #         black_path_mask = cv2.resize(black_tape_mask, (cols, rows))
-    #         grid[black_path_mask > 0] = 0
-    #         robot_path_overlap = robot_mask & black_path_mask
-    #         grid[robot_path_overlap > 0] = 0
-            
-    #         print(f"Found {np.sum(black_path_mask > 0)} reachable cells on black tape paths")
-    #         print(f"Found {np.sum(robot_path_overlap > 0)} cells with robots on paths")
-    #     except cv2.error as e:
-    #         print(f"Error processing masks: {e}")
-    #     return grid
 
     def update_obstacle_grid(self, frame):
         if self.homography is None:
@@ -203,7 +171,7 @@ class Vision:
         for i in range(rows):
             for j in range(cols):
                 graph.add_node((i,j))
-                for di, dj in [(-1,0), (1,0), (0,-1), (0,1), (-1,-1), (-1,1), (1,-1), (1,1)]:
+                for di, dj in [(-1,0), (1,0), (0,-1), (0,1)]:
                     ni, nj = i + di, j + dj
                     if 0 <= ni < rows and 0 <= nj < cols and self.grid[ni,nj] == 0 and self.grid[i,j] == 0:
                         # Weight is sqrt(2) for diagonal, 1 for adjacent, multiplied by grid size in cm
@@ -212,42 +180,41 @@ class Vision:
                     else:
                         graph.add_edge((i,j), (ni,nj), weight=float('inf'))
         return graph
-    
 
     def draw_grid_overlay(self, frame):
         if self.homography is None:
             print("Homography not found, find corners and transform perspective before calling this function")
             return frame
         
-        # Pink color in BGR for grid lines, lime boxes for unreachable
-        pink = (200, 20, 255)
-        lime = (33, 190, 120)
+        pink = (200, 20, 255) # grid lines
+        red = (0, 0, 255) # obstacles
         
-        obstacle_img = np.zeros_like(frame)
-        grid_img = np.zeros_like(frame)
-
+        overlay = frame.copy()
         if self.grid is not None:
             for i in range(self.grid.shape[0]):
                 for j in range(self.grid.shape[1]):
-                    if self.grid[i,j] == 1:
+                    if self.grid[i, j] == 1:  # Unreachable grid square
                         rect_corners = np.array([
                             [[j * self.GRID_SIZE_CM, i * self.GRID_SIZE_CM]],
-                            [[(j+1) * self.GRID_SIZE_CM, i * self.GRID_SIZE_CM]],
-                            [[(j+1) * self.GRID_SIZE_CM, (i+1) * self.GRID_SIZE_CM]],
-                            [[j * self.GRID_SIZE_CM, (i+1) * self.GRID_SIZE_CM]]
+                            [[(j + 1) * self.GRID_SIZE_CM, i * self.GRID_SIZE_CM]],
+                            [[(j + 1) * self.GRID_SIZE_CM, (i + 1) * self.GRID_SIZE_CM]],
+                            [[j * self.GRID_SIZE_CM, (i + 1) * self.GRID_SIZE_CM]]
                         ], dtype=np.float32)
                         
                         transformed_corners = cv2.perspectiveTransform(rect_corners, self.inv_homography)
-                        points = transformed_corners.reshape((-1,1,2)).astype(np.int32)
-                        cv2.fillPoly(obstacle_img, [points], lime)
-        
+                        points = transformed_corners.reshape((-1, 1, 2)).astype(np.int32)
+                        obstacle_overlay = overlay.copy()
+                        cv2.fillPoly(obstacle_overlay, [points], red)
+                        alpha = 0.5  # Transparency level
+                        cv2.addWeighted(obstacle_overlay, alpha, overlay, 1 - alpha, 0, overlay)
+
         for y in range(0, int(self.MAZE_HEIGHT_CM) + 1, self.GRID_SIZE_CM):
             pt1 = np.array([[[0, y * self.GRID_SIZE_CM]]], dtype=np.float32)
             pt2 = np.array([[[self.MAZE_WIDTH_CM * self.GRID_SIZE_CM, y * self.GRID_SIZE_CM]]], dtype=np.float32)
             
             pt1_transformed = tuple(map(int, cv2.perspectiveTransform(pt1, self.inv_homography)[0][0]))
             pt2_transformed = tuple(map(int, cv2.perspectiveTransform(pt2, self.inv_homography)[0][0]))
-            cv2.line(grid_img, pt1_transformed, pt2_transformed, pink, 1)
+            cv2.line(overlay, pt1_transformed, pt2_transformed, pink, 1)
         
         for x in range(0, int(self.MAZE_WIDTH_CM) + 1, self.GRID_SIZE_CM):
             pt1 = np.array([[[x * self.GRID_SIZE_CM, 0]]], dtype=np.float32)
@@ -255,14 +222,18 @@ class Vision:
             
             pt1_transformed = tuple(map(int, cv2.perspectiveTransform(pt1, self.inv_homography)[0][0]))
             pt2_transformed = tuple(map(int, cv2.perspectiveTransform(pt2, self.inv_homography)[0][0]))
-            cv2.line(grid_img, pt1_transformed, pt2_transformed, pink, 1)
+            cv2.line(overlay, pt1_transformed, pt2_transformed, pink, 1)
+        return overlay
 
-        grid_mask = cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY) > 0
+    def draw_robots(self, frame, robots):
+        viz_frame = frame.copy()
+        if self.homography is None:
+            return viz_frame
         
-        grid = frame.copy()
-        grid[obstacle_img > 0] = obstacle_img[obstacle_img > 0]
-        grid[grid_mask] = cv2.addWeighted(grid[grid_mask], 0.3, grid_img[grid_mask], 0.7, 0)
-        return grid
+        for robot_id, (row, col) in robots.items():
+            pt = cv2.perspectiveTransform(np.array([[[col * self.GRID_SIZE_CM, row * self.GRID_SIZE_CM]]], dtype='float32'), self.inv_homography)[0][0]
+            cv2.circle(viz_frame, tuple(map(int, pt)), 8, (255, 0, 0), -1)
+        return viz_frame
 
     def draw_selected_waypoints(self, frame):
         viz_frame = frame.copy()
@@ -284,7 +255,7 @@ class Vision:
         if schedules is None or self.graph is None:
             return frame
         
-        base_colors = [(0, 255, 0), (255, 165, 0)]  # Green and orange for each robot
+        base_colors = [(0, 255, 0), (255, 165, 0)]
         viz_frame = frame.copy()
         
         for robot_id, schedule in enumerate(schedules):
