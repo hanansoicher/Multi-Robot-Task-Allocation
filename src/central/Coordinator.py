@@ -16,25 +16,22 @@ import socket
 
 class Coordinator:
     def __init__(self):
-        # self.start_server()
+        self.start_server()
         
         with open('devices.json', 'r') as f:
             robot_configs = json.load(f)['devices']
         
         self.robots = {
-            f"robot {i+1}": RobotController(
+            f"robot {i}": RobotController(
                 robot['name'], 
                 robot['address'], 
                 robot['write_uuid']
             ) for i, robot in enumerate(robot_configs)
         }
 
-        # self.connect_robots()
+        self.connect_robots()
 
-        # video = "img/test_maze.mp4"
-        video = "img/reo.mp4"
-        # video = "img/emptygrid.mp4"
-        # video=0
+        video=0
         self.vision = Vision(self, video)
         self.vision.app.exec_()
 
@@ -104,7 +101,7 @@ class Coordinator:
         print(robot_coords)
         if len(robot_coords) == 0:
             robot_coords = [(4, 4)]
-        agents = [Robot(id=f"robot {i+1}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
+        agents = [Robot(id=f"robot {i}", start=pos) for i, pos in enumerate([robot_coords[i] for i in range(len(robot_coords))])]
         
         self.tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vision.ui.task_coords.values()]
         
@@ -235,8 +232,8 @@ class Coordinator:
                             else:
                                 break
 
-                        move_duration = nx.shortest_path_length(self.vision.graph, source=path[step], target=path[step+n], weight='weight') * self.vision.MOVE_DURATION_MS_PER_CM
-                        instructions.append(f"MOVE+{int(move_duration)}")
+                        distance = nx.shortest_path_length(self.vision.graph, source=path[step], target=path[step+n], weight='weight')
+                        instructions.append(f"MOVE+{int(distance)}")
                         step += n
                         prev_dir = curr_dir
 
@@ -249,11 +246,11 @@ class Coordinator:
         """Send instructions to all robots (synchronous version)"""
         threads = []
         for robot_id, instructions in enumerate(instructions_set):
-            robot_name = f"robot {robot_id+1}"
+            robot_name = f"robot {robot_id}"
             if robot_name in self.robots and instructions:
                 thread = threading.Thread(
                     target=self.send_instructions_to_robot,
-                    args=(robot_name, instructions, robot_id+1)
+                    args=(robot_name, instructions, robot_id)
                 )
                 thread.start()
                 threads.append(thread)
@@ -283,6 +280,7 @@ class Coordinator:
                 break
                 
         print(f"Completed instructions for robot {robot_id}")
+
 
 def main():
     Coordinator()

@@ -44,19 +44,12 @@ void pid_init(PIDController *pid, float kp, float ki, float kd) {
 }
 
 float compute_pid_correction(PIDController *pid, float error, float dt) {
-    float p = pid->kp * error;
-    
     pid->integral += error * dt;
     if (pid->integral > 10.0f) pid->integral = 10.0f;
     if (pid->integral < -10.0f) pid->integral = -10.0f;
-    float i = pid->ki * pid->integral;
-
     float derivative = (error - pid->last_error) / dt;
-    float d = pid->kd * derivative;
-    
     pid->last_error = error;
-    
-    return p + i + d;
+    return pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
 }
 
 static float gyro_bias = 0.0f;
@@ -90,22 +83,23 @@ void update_robot_state() {
     robot_state.current_angle += -(gyro_data.z + robot_state.last_gyro_value) * dt / 2.0f;
     robot_state.last_gyro_value = gyro_data.z;
     robot_state.last_gyro_read_time = current_time;
+    
+    robot_state.last_right_encoder = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
+    robot_state.last_left_encoder = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
 }
 
 bool execute_move(float distance_cm) {
     update_robot_state();
     PIDController pid;
     pid_init(&pid, 15.0f, 0.05f, 1.0f);
-    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
-    
+    float target_angle = robot_state.current_angle;
     int32_t target_ticks = (int32_t)(distance_cm * ENCODER_TICKS_PER_CM);
     int32_t start_right = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
     int32_t start_left = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
     
     int direction = (distance_cm >= 0) ? 1 : -1;
-    
-    float target_angle = robot_state.current_angle;
-    
+
+    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
     uint32_t last_update_time = to_ms_since_boot(get_absolute_time());
     
     printf("Starting move: distance=%.2f cm, target_ticks=%ld\n", distance_cm, target_ticks);
@@ -126,24 +120,20 @@ bool execute_move(float distance_cm) {
         float angle_error = target_angle - robot_state.current_angle;
         while (angle_error > 180.0f) angle_error -= 360.0f;
         while (angle_error < -180.0f) angle_error += 360.0f;
-        
         float correction = compute_pid_correction(&pid, angle_error, dt);
         
         int32_t left_speed = (DEFAULT_MOTOR_SPEED * direction) + correction;
         int32_t right_speed = (DEFAULT_MOTOR_SPEED * direction) - correction;
-        
         if (left_speed * direction < 200) left_speed = 200 * direction;
         if (right_speed * direction < 200) right_speed = 200 * direction;
         if (left_speed * direction > DEFAULT_MOTOR_SPEED*2) left_speed = DEFAULT_MOTOR_SPEED * direction;
         if (right_speed * direction > DEFAULT_MOTOR_SPEED*2) right_speed = DEFAULT_MOTOR_SPEED * direction;
-        
         motors_set_speeds(left_speed, right_speed);
-        
-        if (current_time - last_debug_time > 500) {
+
+        if (current_time - last_debug_time > 1000) {
             last_debug_time = current_time;
-            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, mean_diff, target_ticks);
+            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, target_ticks);
         }
-        
         sleep_ms(5);
     }
 }
@@ -151,7 +141,7 @@ bool execute_move(float distance_cm) {
 bool execute_turn(float angle_degrees, char direction) {
     int dir = (direction == 'R') ? 1 : -1;
     bool close = false;
-    uint32_t x = 0;
+    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
     update_robot_state();
     float start_angle = robot_state.current_angle;
     float target_angle = start_angle + dir*angle_degrees;
@@ -159,28 +149,26 @@ bool execute_turn(float angle_degrees, char direction) {
 
     while (1) {
         update_robot_state();
-        
-        float error = target_angle - robot_state.current_angle;
-        while (error > 720.0f) error -= 360.0f;
-        while (error < -720.0f) error += 360.0f;
-        
-        if (fabs(error) < 4.0f) {
-            motors_set_speeds(0, 0);
-            printf("Turn complete: current=%.2f, target=%.2f, error=%.2f\n", robot_state.current_angle, target_angle, error);
-            return true;
+        int32_t current_time = to_ms_since_boot(get_absolute_time());
+        if (current_time - last_debug_time > 1000) {
+            last_debug_time = current_time;
+            printf("Angle: %.2f, Target: %.2f, Error: %.2f\n", robot_state.current_angle, target_angle, target_angle - robot_state.current_angle);
         }
+
+        float angle_error = target_angle - robot_state.current_angle;
+        while (angle_error > 720.0f) angle_error -= 360.0f;
+        while (angle_error < -720.0f) angle_error += 360.0f;
         
-        if (!close && fabs(error) < 45.0f) {
+        if (!close && fabs(angle_error) < 45.0f) {
             close = true;
             motors_set_speeds(dir*DEFAULT_MOTOR_SPEED / 3, -dir*DEFAULT_MOTOR_SPEED / 3);
         }
-        
-        if (x == 1000) {
-            x = 0;
-            printf("Angle: %.2f, Target: %.2f, Error: %.2f\n", robot_state.current_angle, target_angle, error);
-        }
-        x++;
-        
+
+        if (fabs(angle_error) < 4.0f) {
+            motors_set_speeds(0, 0);
+            printf("Turn complete: current=%.2f, target=%.2f, remaining=%.2f\n", robot_state.current_angle, target_angle, angle_error);
+            return true;
+        }      
         sleep_ms(5);
     }
 }
@@ -246,13 +234,8 @@ int main() {
 
     char command_buffer[32];
     int buffer_pos = 0;
-    int q = 0;
     while (1) {
         update_robot_state();
-        if (q % 100 == 0) {
-            printf("Angle: %.2f, Distance: %.2f\n", robot_state.current_angle, robot_state.total_distance);
-            printf("Gyro: %.2f\n", robot_state.last_gyro_value);
-        }
         while (uart_is_readable(UART_ID)) {
             char c = uart_getc(UART_ID);
             printf("Received char: %c (%d)\n", c, (int)c);

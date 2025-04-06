@@ -13,8 +13,8 @@ class Vision:
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera/video")
 
-        self.MAZE_WIDTH_CM = 50
-        self.MAZE_HEIGHT_CM = 50
+        self.MAZE_WIDTH_CM = 72
+        self.MAZE_HEIGHT_CM = 45
         self.GRID_SIZE_CM = 1
         self.MOVE_DURATION_MS_PER_CM = 1
         self.TURN_DURATION_MS_PER_DEG = 1
@@ -83,7 +83,7 @@ class Vision:
         """Find ArUco markers for the corners"""
         corners, ids, _ = self.aruco_detector.detectMarkers(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
         corner_pixels = {}
-        corner_ids = {96: 'top_left', 97: 'top_right', 98: 'bottom_left', 99: 'bottom_right'}
+        corner_ids = {97: 'top_left', 99: 'top_right', 96: 'bottom_left', 98: 'bottom_right'}
 
         if ids is None:
             print("No ArUco markers found")
