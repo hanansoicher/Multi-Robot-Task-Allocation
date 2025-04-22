@@ -120,11 +120,10 @@ class Robot:
                 
                 if not self.waiting:
                     print(f"Command '{command}' completed successfully")
-                    return "COMPLETED"
-                    # if need_data_response:
-                    #     return return_data[0] if return_data and len(return_data) == 1 else return_data
-                    # else:
-                    #     return "COMPLETED"
+                    if need_data_response:
+                        return return_data[0] if return_data and len(return_data) == 1 else return_data
+                    else:
+                        return "COMPLETED"
                 else:
                     print(f"Command '{command}' timed out, retrying ({i+1}/{retry_times})")
                     self.waiting = False

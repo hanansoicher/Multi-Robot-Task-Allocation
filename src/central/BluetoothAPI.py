@@ -43,9 +43,9 @@ class BluetoothAPI:
                 "device_address": device_address,
                 "characteristic_uuid": characteristic_uuid,
             })
-            r = response.json()
-            print(f"Can connect response: {r}")
-            return r['status'] == 'can_connect'
+            result = response.json()
+            print(f"Can connect response: {result}")
+            return result['status'] == 'can_connect'
         except Exception as e:
             print(f"Error checking connection: {e}")
             return False
@@ -95,7 +95,7 @@ class BluetoothAPI:
             print(f"Error adding robot: {e}")
             return {"status": "error", "message": str(e)}
 
-    def send_command(self, command: str, need_data: bool = True):
+    def send_command(self, command: str, need_data: bool = False):
         """Synchronous wrapper for sending commands."""
         try:
             if not self.connected:

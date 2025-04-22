@@ -22,7 +22,7 @@ class RobotController(BluetoothAPI):
         result = super().disconnect()
         return result.get('status') == 'disconnected'
 
-    def send_command(self, command: str, need_response=True):
+    def send_command(self, command: str, need_response=False):
         """Send a command to the robot and wait for COMPLETED"""
         result = super().send_command(command, need_response)
         
