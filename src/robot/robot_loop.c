@@ -44,19 +44,12 @@ void pid_init(PIDController *pid, float kp, float ki, float kd) {
 }
 
 float compute_pid_correction(PIDController *pid, float error, float dt) {
-    float p = pid->kp * error;
-    
     pid->integral += error * dt;
     if (pid->integral > 10.0f) pid->integral = 10.0f;
     if (pid->integral < -10.0f) pid->integral = -10.0f;
-    float i = pid->ki * pid->integral;
-
     float derivative = (error - pid->last_error) / dt;
-    float d = pid->kd * derivative;
-    
     pid->last_error = error;
-    
-    return p + i + d;
+    return pid->kp * error + pid->ki * pid->integral + pid->kd * derivative;
 }
 
 static float gyro_bias = 0.0f;
@@ -90,22 +83,23 @@ void update_robot_state() {
     robot_state.current_angle += -(gyro_data.z + robot_state.last_gyro_value) * dt / 2.0f;
     robot_state.last_gyro_value = gyro_data.z;
     robot_state.last_gyro_read_time = current_time;
+    
+    robot_state.last_right_encoder = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
+    robot_state.last_left_encoder = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
 }
 
 bool execute_move(float distance_cm) {
     update_robot_state();
     PIDController pid;
     pid_init(&pid, 15.0f, 0.05f, 1.0f);
-    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
-    
+    float target_angle = robot_state.current_angle;
     int32_t target_ticks = (int32_t)(distance_cm * ENCODER_TICKS_PER_CM);
     int32_t start_right = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
     int32_t start_left = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
     
     int direction = (distance_cm >= 0) ? 1 : -1;
-    
-    float target_angle = robot_state.current_angle;
-    
+
+    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
     uint32_t last_update_time = to_ms_since_boot(get_absolute_time());
     
     printf("Starting move: distance=%.2f cm, target_ticks=%ld\n", distance_cm, target_ticks);
@@ -126,24 +120,20 @@ bool execute_move(float distance_cm) {
         float angle_error = target_angle - robot_state.current_angle;
         while (angle_error > 180.0f) angle_error -= 360.0f;
         while (angle_error < -180.0f) angle_error += 360.0f;
-        
         float correction = compute_pid_correction(&pid, angle_error, dt);
         
         int32_t left_speed = (DEFAULT_MOTOR_SPEED * direction) + correction;
         int32_t right_speed = (DEFAULT_MOTOR_SPEED * direction) - correction;
-        
         if (left_speed * direction < 200) left_speed = 200 * direction;
         if (right_speed * direction < 200) right_speed = 200 * direction;
         if (left_speed * direction > DEFAULT_MOTOR_SPEED*2) left_speed = DEFAULT_MOTOR_SPEED * direction;
         if (right_speed * direction > DEFAULT_MOTOR_SPEED*2) right_speed = DEFAULT_MOTOR_SPEED * direction;
-        
         motors_set_speeds(left_speed, right_speed);
-        
-        if (current_time - last_debug_time > 500) {
+
+        if (current_time - last_debug_time > 1000) {
             last_debug_time = current_time;
-            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, mean_diff, target_ticks);
+            printf("Angle: %.2f, Error: %.2f, Corr: %.2f, L: %ld, R: %ld, Dist: %ld/%ld\n", robot_state.current_angle, angle_error, correction, left_speed, right_speed, target_ticks);
         }
-        
         sleep_ms(5);
     }
 }
@@ -151,7 +141,7 @@ bool execute_move(float distance_cm) {
 bool execute_turn(float angle_degrees, char direction) {
     int dir = (direction == 'R') ? 1 : -1;
     bool close = false;
-    uint32_t x = 0;
+    int32_t last_debug_time = to_ms_since_boot(get_absolute_time());
     update_robot_state();
     float start_angle = robot_state.current_angle;
     float target_angle = start_angle + dir*angle_degrees;
@@ -159,30 +149,180 @@ bool execute_turn(float angle_degrees, char direction) {
 
     while (1) {
         update_robot_state();
-        
-        float error = target_angle - robot_state.current_angle;
-        while (error > 720.0f) error -= 360.0f;
-        while (error < -720.0f) error += 360.0f;
-        
-        if (fabs(error) < 4.0f) {
-            motors_set_speeds(0, 0);
-            printf("Turn complete: current=%.2f, target=%.2f, error=%.2f\n", robot_state.current_angle, target_angle, error);
-            return true;
+        int32_t current_time = to_ms_since_boot(get_absolute_time());
+        if (current_time - last_debug_time > 1000) {
+            last_debug_time = current_time;
+            printf("Angle: %.2f, Target: %.2f, Error: %.2f\n", robot_state.current_angle, target_angle, target_angle - robot_state.current_angle);
         }
+
+        float angle_error = target_angle - robot_state.current_angle;
+        while (angle_error > 720.0f) angle_error -= 360.0f;
+        while (angle_error < -720.0f) angle_error += 360.0f;
         
-        if (!close && fabs(error) < 45.0f) {
+        if (!close && fabs(angle_error) < 45.0f) {
             close = true;
             motors_set_speeds(dir*DEFAULT_MOTOR_SPEED / 3, -dir*DEFAULT_MOTOR_SPEED / 3);
         }
+
+        if (fabs(angle_error) < 4.0f) {
+            motors_set_speeds(0, 0);
+            printf("Turn complete: current=%.2f, target=%.2f, remaining=%.2f\n", robot_state.current_angle, target_angle, angle_error);
+            return true;
+        }      
+        sleep_ms(5);
+    }
+}
+
+void calibrate_movement(float distance) {
+    if (distance <= 0) distance = 50.0f;
+    
+    uint32_t start_time, end_time;
+    int32_t start_left, start_right, end_left, end_right;
+    float duration_ms;
+    float ms_per_cm;
+    float left_ticks, right_ticks, avg_ticks;
+    float ticks_per_cm;
+    char result[200];
+    
+    update_robot_state();
+    start_left = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
+    start_right = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
+    start_time = to_ms_since_boot(get_absolute_time());
+    
+    float start_angle = robot_state.current_angle;
+
+    uint32_t estimated_drive_time = (uint32_t)(distance * 40.0f);
+    
+    sprintf(result, "Starting calibration: %.1fcm movement for ~%lums\n", distance, estimated_drive_time);
+    uart_puts(UART_ID, result);
+    
+    PIDController pid;
+    pid_init(&pid, 15.0f, 0.05f, 1.0f);
+    
+    motors_set_speeds(DEFAULT_MOTOR_SPEED, DEFAULT_MOTOR_SPEED);
+    uint32_t start_drive_time = to_ms_since_boot(get_absolute_time());
+    uint32_t last_update_time = start_drive_time;
+    uint32_t current_time;
+    
+    while (1) {
+        update_robot_state();
+        current_time = to_ms_since_boot(get_absolute_time());
         
-        if (x == 1000) {
-            x = 0;
-            printf("Angle: %.2f, Target: %.2f, Error: %.2f\n", robot_state.current_angle, target_angle, error);
+        if (current_time - start_drive_time >= estimated_drive_time) {
+            motors_set_speeds(0, 0);
+            break;
         }
-        x++;
+        
+        float dt = (current_time - last_update_time) / 1000.0f;
+        if (dt >= 0.01f) {
+            last_update_time = current_time;
+            
+            float angle_error = start_angle - robot_state.current_angle;
+            while (angle_error > 180.0f) angle_error -= 360.0f;
+            while (angle_error < -180.0f) angle_error += 360.0f;
+            
+            float correction = compute_pid_correction(&pid, angle_error, dt);
+            
+            int32_t left_speed = DEFAULT_MOTOR_SPEED + correction;
+            int32_t right_speed = DEFAULT_MOTOR_SPEED - correction;
+            
+            if (left_speed < 200) left_speed = 200;
+            if (right_speed < 200) right_speed = 200;
+            if (left_speed > DEFAULT_MOTOR_SPEED*2) left_speed = DEFAULT_MOTOR_SPEED*2;
+            if (right_speed > DEFAULT_MOTOR_SPEED*2) right_speed = DEFAULT_MOTOR_SPEED*2;
+            
+            motors_set_speeds(left_speed, right_speed);
+        }
         
         sleep_ms(5);
     }
+    
+    end_time = to_ms_since_boot(get_absolute_time());
+    end_left = quadrature_encoder_get_count(PIO_ID, LEFT_SM);
+    end_right = quadrature_encoder_get_count(PIO_ID, RIGHT_SM);
+    
+    duration_ms = (float)(end_time - start_time);
+    ms_per_cm = duration_ms / distance;
+    
+    left_ticks = (float)abs(end_left - start_left);
+    right_ticks = (float)abs(end_right - start_right);
+    avg_ticks = (left_ticks + right_ticks) / 2.0f;
+    ticks_per_cm = avg_ticks / distance;
+    
+    sprintf(result, "Res:\n"
+                   "%.2f cm\n"
+                   "%.2f ms\n"
+                   "%.2f ms/cm\n"
+                   "Left: %.1f\n"
+                   "Right: %.1f\n"
+                   "Avg: %.1f\n"
+                   "Ticks/cm: %.2f\n",
+                   distance, duration_ms, ms_per_cm,
+                   left_ticks, right_ticks, avg_ticks, ticks_per_cm);
+    
+    uart_puts(UART_ID, result);
+    uart_puts(UART_ID, "COMPLETED\n");
+}
+
+void calibrate_turn() {
+    uint32_t start_time, slow_phase_start, end_time;
+    float test_angle = 180.0f;
+    bool entered_slow_phase = false;
+    robot_state.current_angle = 0.0f;
+    start_time = to_ms_since_boot(get_absolute_time());
+    
+    update_robot_state();
+    float start_angle = robot_state.current_angle;
+    float target_angle = start_angle + test_angle;
+    int dir = 1; // right
+    motors_set_speeds(dir*DEFAULT_MOTOR_SPEED, -dir*DEFAULT_MOTOR_SPEED);
+
+    while (1) {
+        update_robot_state();
+        
+        float angle_error = target_angle - robot_state.current_angle;
+        float angle_covered = fabs(robot_state.current_angle - start_angle);
+        
+        if (!entered_slow_phase && fabs(angle_error) < 45.0f) {
+            entered_slow_phase = true;
+            slow_phase_start = to_ms_since_boot(get_absolute_time());
+            motors_set_speeds(dir*DEFAULT_MOTOR_SPEED / 3, -dir*DEFAULT_MOTOR_SPEED / 3);
+            
+            float fast_phase_duration = slow_phase_start - start_time;
+            float fast_phase_degrees = test_angle - 45.0f;
+            float fast_deg_per_ms = fast_phase_degrees / fast_phase_duration;
+            
+            char result[100];
+            sprintf(result, "Fast phase: %.2f ms for %.2f degrees (%.4f deg/ms)\n", 
+                   fast_phase_duration, fast_phase_degrees, fast_deg_per_ms);
+            uart_puts(UART_ID, result);
+        }
+        
+        if (fabs(angle_error) < 2.0f) {
+            motors_set_speeds(0, 0);
+            end_time = to_ms_since_boot(get_absolute_time());
+            
+            float slow_phase_duration = end_time - slow_phase_start;
+            float slow_phase_degrees = 45.0f;
+            float slow_deg_per_ms = slow_phase_degrees / slow_phase_duration;
+            
+            char result[100];
+            sprintf(result, "Slow phase: %.2f ms for %.2f degrees (%.4f deg/ms)\n", 
+                   slow_phase_duration, slow_phase_degrees, slow_deg_per_ms);
+            uart_puts(UART_ID, result);
+            
+            float total_duration = end_time - start_time;
+            float total_deg_per_ms = test_angle / total_duration;
+            
+            sprintf(result, "Total: %.2f ms for %.2f degrees (%.4f deg/ms)\n", 
+                   total_duration, test_angle, total_deg_per_ms);
+            uart_puts(UART_ID, result);
+            
+            break;
+        }
+        sleep_ms(5);
+    }
+    uart_puts(UART_ID, "COMPLETED\n");
 }
 
 
@@ -222,6 +362,16 @@ bool handle_command(const char* command) {
         uart_puts(UART_ID, "RUNNING\n");
         return true;
     }
+
+    else if (strncmp(command, "CALIBRATE_MOVE+", 15) == 0) {
+        int distance = atoi(command + 15);
+        calibrate_movement(distance);
+        return true;
+    }
+    else if (strncmp(command, "CALIBRATE_TURN", 14) == 0) {
+        calibrate_turn();
+        return true;
+    }
     
     uart_puts(UART_ID, "FAILED\n");
     return false;
@@ -246,13 +396,8 @@ int main() {
 
     char command_buffer[32];
     int buffer_pos = 0;
-    int q = 0;
     while (1) {
         update_robot_state();
-        if (q % 100 == 0) {
-            printf("Angle: %.2f, Distance: %.2f\n", robot_state.current_angle, robot_state.total_distance);
-            printf("Gyro: %.2f\n", robot_state.last_gyro_value);
-        }
         while (uart_is_readable(UART_ID)) {
             char c = uart_getc(UART_ID);
             printf("Received char: %c (%d)\n", c, (int)c);

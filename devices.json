@@ -1,8 +1,13 @@
 {
     "devices": [
         {
-            "name": "149_Proj_G8",
+            "name": "robot 0",
             "address": "B0:D2:78:32:EA:6C",
+            "write_uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+            "name": "robot 1",
+            "address": "60:B6:E1:E1:C6:A6",
             "write_uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
         }
     ]

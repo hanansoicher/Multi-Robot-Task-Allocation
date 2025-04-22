@@ -4,3 +4,6 @@
 [submodule "lib/pololu-3pi-2040-robot"]
 	path = lib/pololu-3pi-2040-robot
 	url = https://github.com/pololu/pololu-3pi-2040-robot.git
+[submodule "lib/pico-sdk"]
+	path = lib/pico-sdk
+	url = https://github.com/raspberrypi/pico-sdk.git
