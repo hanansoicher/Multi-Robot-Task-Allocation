@@ -1,128 +1,117 @@
-import sys
 import os
-import threading
-from time import sleep
-import networkx as nx
+import sys
 import json
-import subprocess
-import time
 import socket
-from cbs_mapf.planner import Planner, Agent
+import threading
+import subprocess
 import numpy as np
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from collections import OrderedDict
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from UI import UI
+from Vision import Vision
+from MAPF_Wrapper import MAPF_Wrapper
+from robot.RobotController import RobotController
 from lib.SMrTa.MRTASolver import MRTASolver, Robot
 from lib.SMrTa.MRTASolver.objects import Task
-from Vision import Vision
-from src.robot.RobotController import RobotController
 
+# All grid coordinates (row, col) refer to the center of the grid cell, i.e., (row + 0.5, col + 0.5)
 
 class Coordinator:
     def __init__(self):
-        self.schedules = None # {robot_id: [waypoint1, waypoint2, ...]}
-        self.stage_instructions = {} # {stage: {robot_id: [instr1, instr2, ...]}}
-        self.collision_free_paths = {} # {stage: {robot_id: [path1, path2, ...]}}
+        self.robots = OrderedDict() # {robot_id: RobotController}
+        self.collision_free_paths = None # {robot_id: (time, row, col, orientation) path}
+        self.schedules = None # {robot_id: (time, row, col, orientation) path}
+        self.robot_instructions = None # {robot_id: [instruction]}
+
         self.start_server()
         self.connect_robots()
-        video='img/reo.mp4'
-        self.vision = Vision(self, 0)
-        self.vision.app.exec_()
+        # camera = 'robotenv_video.mp4'
+        camera = 0
+        self.vision = Vision(camera_input=camera)
+        
+        try:
+            self.mapf_wrapper = MAPF_Wrapper()
+        except Exception as e:
+            print(f"[Coordinator] Failed to initialize MAPF-PC wrapper: {e}")
+            self.mapf_wrapper = None
+            
+        self.ui = UI(coordinator=self, vision=self.vision)
+        sys.exit(self.ui._app.exec_())
 
-        self.vision.cap.release()
-        self.stop_server()
 
     def start_server(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind(("127.0.0.1", 8000))
+            s.close()
+            print("[Coordinator] Starting BLE HTTP server")
+            server_process = subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "server.py")])
+        except OSError:
+            print("[Coordinator] Server already running on port 8000.")
+        finally:
             try:
-                s.bind(("127.0.0.1", 8000))
                 s.close()
-                print("Starting server...")
-                server_path = os.path.join(os.path.dirname(__file__), 'Server.py')
-                stdout_file = open('server_stdout.txt', 'w')
-                stderr_file = open('server_stderr.txt', 'w')
-                self.server_process = subprocess.Popen(
-                    [sys.executable, server_path], 
-                    stdout=stdout_file,
-                    stderr=stderr_file
-                )
-            except socket.error as e:
-                print(f"Socket error: {e}")
-                self.server_process = None
-        except Exception as e:
-            print(f"Error starting server: {e}")
-            self.server_process = None
+            except Exception:
+                pass
 
-    def stop_server(self):
-        if hasattr(self, 'server_process') and self.server_process:
-            print("Stopping server...")
-            self.server_process.terminate()
-            try:
-                self.server_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.server_process.kill()
 
     def connect_robots(self):
-        with open('devices.json', 'r') as f:
-            robot_configs = json.load(f)['devices']
-        self.robots = {
-            robot['name']: RobotController(robot['name'], robot['address'], robot['write_uuid']) for robot in robot_configs
-        }
-        connected_count = 0
-        for robot_name, robot in self.robots.items():
-            print(f"Connecting to {robot_name}...")
+        with open("devices.json", "r", encoding="utf-8") as f:
+            devices = json.load(f).get("devices", [])
+
+        devices.sort(key=lambda d: d["marker_id"])
+        connected = 0
+        for d in devices:
+            robot = RobotController(int(d["marker_id"]), d["address"], d["write_uuid"])
             if robot.connect():
-                connected_count += 1
-                print(f"Connected to {robot_name}")
-            else:
-                print(f"Failed to connect to {robot_name}")
-        
-        print(f"Successfully connected to {connected_count}/{len(self.robots)} robots")
+                connected += 1
+                self.robots[robot.id] = robot
+        print(f"[Coordinator] Connected {connected}/{len(devices)} robots.")
+
 
     def run_solver(self):
-        agents = [Robot(id=f"robot {marker_id}", start=pos) for marker_id, pos in self.vision.robot_coords.items()]
+        agents = [Robot(id=marker_id, start=self.vision.robot_coords[marker_id]) for marker_id in sorted(self.vision.robot_coords.keys())]
+        tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.ui.task_coords.values()]
         
-        tasks = [Task(id=task['id'], start=tuple(task['start']), end=tuple(task['end']), deadline=task['deadline']) for task in self.vision.ui.task_coords.values()]
-        
-        self.action_points = [coord for coord in self.vision.robot_coords.values()]
+        action_points = [agent.start for agent in agents]
         for task in tasks:
-            self.action_points.append(task.start)
-            self.action_points.append(task.end)
+            action_points.append(task.start)
+            action_points.append(task.end)
 
         # Remap agent and task start/end values
-        print("Agents:")
         for a in agents:
-            print(a.id, a.start)
-            a.start = self.action_points.index(a.start)
-        print("Tasks:")
+            a.start = action_points.index(a.start)
         for t in tasks:
-            print(t.id, t.start, t.end)
-            t.start = self.action_points.index(t.start)
-            t.end = self.action_points.index(t.end)
+            t.start = action_points.index(t.start)
+            t.end = action_points.index(t.end)
         print("Running solver...")
         solver = MRTASolver(
             solver_name='z3',
             theory='QF_UFBV', 
             agents=agents,
             tasks_stream=[[tasks, 0]],
-            room_graph=self.vision.create_travel_time_matrix(self.action_points),
+            room_graph=self.vision.create_travel_time_matrix(action_points),
             capacity=1,
-            num_aps=len(self.action_points),
-            aps_list=[np.ceil(len(tasks)/len(agents))*2+1, len(self.action_points)],
+            num_aps=len(action_points),
+            aps_list=[np.ceil(len(tasks)/len(agents))*2+1, len(action_points)],
             fidelity=1,
+            debug=False
         )
         if solver.sol is None:
-            print("No solution found!")
+            print("MRTA solver failed")
             return None
         
         solution = solver.sol
-
         num_robots = len(solution['agt'])
-        robot_schedules = {}
-        
-        for robot_id in range(num_robots):
-            schedule = []
-            agent_data = solution['agt'][robot_id]
 
+        robot_schedules = {}
+        for id, agent in enumerate(agents):
+            schedule = []
+            agent_data = solution['agt'][id]
+            print(f"Processing agent {agent.id} with data: {agent_data}")
+        
             for i in range(len(agent_data['t'])):
                 time = agent_data['t'][i]
                 action_id = agent_data['id'][i]
@@ -136,19 +125,17 @@ class Coordinator:
                 task_num = None
 
                 if action_id < num_robots:
-                    # Agent's start location
-                    location = self.action_points[action_id]
-                    action_type = "WAIT"
+                    location = action_points[action_id]
+                    action_type = "WAIT" # Start location
                 else:
-                    task_idx = (action_id - num_robots) // 2
-                    is_pickup = ((action_id - num_robots) % 2 == 0)
-                    if is_pickup:
+                    task_index = (action_id - num_robots) // 2
+                    if ((action_id - num_robots) % 2 == 0):
                         action_type = "PICKUP"
-                        location = self.action_points[tasks[task_idx].start]
+                        location = action_points[tasks[task_index].start]
                     else:
                         action_type = "DROPOFF"
-                        location = self.action_points[tasks[task_idx].end]
-                    task_num = task_idx
+                        location = action_points[tasks[task_index].end]
+                    task_num = task_index
                 schedule.append({
                     'time': time,
                     'location': location,
@@ -156,8 +143,10 @@ class Coordinator:
                     'task_id': task_num
                 })
             schedule.sort(key=lambda x: x['time'])
-            robot_schedules[robot_id] = schedule
-        self.schedules = robot_schedules
+            robot_schedules[agent.id] = schedule[:-1] # don't return to start location
+        
+        robot_schedules = OrderedDict(sorted(robot_schedules.items(), key=lambda kv: int(kv[0])))
+
         for robot_id, schedule in robot_schedules.items():
             print(f"\nRobot {robot_id} Plan:")
             print("Time  | Location | Action  | Task")
@@ -166,190 +155,300 @@ class Coordinator:
                 task_str = f"Task {step['task_id']}" if step['task_id'] is not None else "N/A"
                 print(f"{step['time']} | {step['location']} | {step['action']} | {task_str}") 
 
-        for stage in range(max(len(s) for s in robot_schedules.values())):
-            self.stage_instructions[stage] = self.generate_collision_free_instructions_for_stage(robot_schedules, stage)
-        return robot_schedules
+        print("\n" + "-"*50)
+        print("Generating collision-free paths\n")
+        print("-"*50)
         
+        try:
+            grid_size = (self.vision.ROWS, self.vision.COLS)
+            
+            obstacles = self.vision.get_obstacle_coordinates()
+            print(f"Found {len(obstacles)} obstacles")
+            print(f"Grid size: {grid_size}")
 
-    def generate_collision_free_instructions_for_stage(self, robot_schedules, stage):
-        """
-        For a given stage index, plan multi-robot collision-free paths for all robots,
-        then generate turn/move instructions assuming each starts facing down (0,1)
-        and ends facing down (0,1).
-        Returns a dict: { robot_id: [instr1, instr2, ...] }
-        """
-        obstacle_mask = self.vision.get_obstacle_grid(self.vision.cap.read()[1], with_buffer=False)
-        obstacles = [
-            (c, r)
-            for r in range(obstacle_mask.shape[0])
-            for c in range(obstacle_mask.shape[1])
-            if obstacle_mask[r, c] == 1
-        ]
-        obstacles += [
-            (0, 0),
-            (self.vision.ENV_WIDTH_CM-1, 0),
-            (0, self.vision.ENV_HEIGHT_CM-1),
-            (self.vision.ENV_WIDTH_CM-1, self.vision.ENV_HEIGHT_CM-1)
-        ]
+            collision_free_paths = self.mapf_wrapper.generate_collision_free_paths(robot_schedules, grid_size, obstacles=obstacles)
+            if collision_free_paths:
+            #     print(f"\nSuccessfully generated collision-free paths for {len(collision_free_paths)} robots")
+                # original_paths = {k: v[:-2] for k, v in collision_free_paths.items()}
+                
+                print("\nPostprocessing paths")
+                postprocessed_paths = self.add_turns_and_waits(collision_free_paths)
 
-        planner = Planner(
-            grid_size=1,
-            robot_radius=2,
-            static_obstacles=obstacles,
-        )
+                self.collision_free_paths = postprocessed_paths
+                print(f"Postprocessed paths:")
+                for robot_id, path in postprocessed_paths.items():
+                    print(f"Robot {robot_id}: {path}")
+                
+                self.generate_movement_instructions_from_mapf_paths(postprocessed_paths)
+            else:
+                print("Failed to generate collision-free paths")
+                self.collision_free_paths = None
+                
+        except Exception as e:
+            print(f"Error generating collision-free paths: {e}")
+            self.collision_free_paths = None
+        self.schedules = robot_schedules
 
-        starts, goals, robot_order = [], [], []
-        for robot_id, schedule in robot_schedules.items():
-            if stage + 1 < len(schedule):
-                s = schedule[stage]['location']
-                g = schedule[stage + 1]['location']
-                if s != g:
-                    starts.append((s[1], s[0]))  # (x,y)
-                    goals.append((g[1], g[0]))
-                    robot_order.append(robot_id)
+    def add_turns_and_waits(self, paths):
+        """Add turn steps and wait steps to ensure all robots move synchronously."""
+        for robot_id, path in paths.items():
+            print(f"  Initial path for robot {robot_id}: {path}")
 
-        if len(starts) < 2:
-            xy_paths = []
-        else:
-            try:
-                xy_paths = planner.plan(starts, goals, assign=assigner)
-                print(f"Generated paths for stage {stage}: {xy_paths}")
-            except Exception:
-                xy_paths = []
-                print(f"Error generating paths for stage {stage}, using shortest path as fallback.")
-        self.collision_free_paths[stage] = {}
-        stage_instructions = {}
-        for robot_id in robot_schedules.keys():
-            stage_instructions[robot_id] = []
-
-        print(f"Processing paths for {len(robot_order)} robots in stage {stage}")
-
-        for i, robot_id in enumerate(robot_order):
-            try:
-                path = []
-                if i < len(xy_paths) and xy_paths[i] is not None and len(xy_paths[i]) > 0:
-                    path = [(p[1], p[0]) for p in xy_paths[i]]
-                    print(f"Robot {robot_id}: Using collision-free path with {len(path)} points")
-                if not path:
-                    start = robot_schedules[robot_id][stage]['location']
-                    end = robot_schedules[robot_id][stage + 1]['location']
-                    try:
-                        path = nx.shortest_path(self.vision.graph, source=start, target=end, weight='weight')
-                        print(f"Robot {robot_id}: Using shortest path with {len(path)} points")
-                    except nx.NetworkXNoPath:
-                        print(f"Robot {robot_id}: No path found between {start} and {end}")
-                        path = []
+        validated_paths = {}
+        for robot_id, path in paths.items():
+            validated_paths[robot_id] = []
+            for i, (time, row, col) in enumerate(path):
+                if i == 0:
+                    orientation = (1, 0)  # All robots start facing down
+                else:
+                    prev_row, prev_col = path[i-1][1], path[i-1][2]
+                    drow = row - prev_row
+                    dcol = col - prev_col
+                    
+                    if drow == 0 and dcol == 0: # Same position, keep previous orientation
+                        orientation = validated_paths[robot_id][i-1][3]
+                    elif drow == 0: # Horizontal movement
+                        orientation = (0, 1 if dcol > 0 else -1)
+                    elif dcol == 0: # Vertical movement
+                        orientation = (1 if drow > 0 else -1, 0)
+                    else:
+                        # Diagonal movement not allowed
+                        orientation = validated_paths[robot_id][i-1][3]
                         
-                if not path:
-                    print(f"Robot {robot_id}: No path available, skipping instructions")
-                    self.collision_free_paths[stage][robot_id] = []
+                validated_paths[robot_id].append([time, row, col, orientation])
+        
+        iteration = 0
+        while iteration < 100:
+            print(f"\n========================= Iteration {iteration} =========================")
+            iteration += 1
+            
+            # Find the next time when any robots need to turn
+            next_turn_time, next_turns = self.find_next_turn(validated_paths)
+            
+            if next_turn_time == float('inf') or len(next_turns) == 0:
+                print("No more turns to check")
+                break
+                
+            print(f"next turns: {next_turns}")
+            
+            insertion_time = next_turn_time + 1 # robot moves into the coordinate it needs to turn at next_turn_time, turn  with updated orientationshould be inserted at next_turn_time + 1
+            
+            # For each robot, either a single 90 degree turn step or a wait step is inserted at insertion_time. 
+            for robot_id in validated_paths.keys():
+                path = validated_paths[robot_id]
+                
+                insertion_index = next((i for i, step in enumerate(path) if step[0] >= insertion_time), None)
+                if insertion_index is None: 
+                    continue
+
+                if robot_id in next_turns: #insert 90 degree turn step
+                    turn = next_turns[robot_id]
+                    current_orientation = turn['from_orientation']
+                    
+                    dir_to_angle = { # (0=Right, 90=Down, 180=Left, 270=Up) (top left of environment is (0, 0))
+                        (0, 1): 0, 
+                        (1, 0): 90, 
+                        (0, -1): 180, 
+                        (-1, 0): 270}
+                    angle_to_dir = {v: k for k, v in dir_to_angle.items()}
+                    
+                    curr_angle = dir_to_angle.get(current_orientation, 0)
+                    intermediate_angle = (curr_angle + (90 if turn['angle'] > 0 else -90)) % 360
+                    intermediate_orientation = angle_to_dir.get(intermediate_angle, current_orientation)
+                    turn_step = [insertion_time, turn['position'][0], turn['position'][1], intermediate_orientation]
+                    
+                    # Shift remaining steps and update their times
+                    shifted_path = path[:insertion_index] + [turn_step]
+                    for step in path[insertion_index:]:
+                        shifted_path.append([step[0] + 1, step[1], step[2], intermediate_orientation])    
+                    validated_paths[robot_id] = shifted_path
+                    print(f"Inserted turning step for Robot {robot_id} at time {insertion_time} and coordinate {turn['position']} from orientation {current_orientation} to {intermediate_orientation}")
+                else: #insert wait step
+                    prev_step = path[insertion_index - 1]
+                    wait_step = [insertion_time, prev_step[1], prev_step[2], prev_step[3]]
+                    
+                    # Shift remaining steps
+                    shifted_path = path[:insertion_index] + [wait_step]
+                    for step in path[insertion_index:]:
+                        wait_step = [step[0] + 1, step[1], step[2], step[3]]
+                        shifted_path.append(wait_step)
+                    validated_paths[robot_id] = shifted_path
+                    print(f"Inserted wait step for Robot {robot_id} at time {insertion_time}")
+            
+        print("Final postprocessed paths: ")
+        for robot_id, path in validated_paths.items():
+            print(f"  Robot {robot_id}: {path}")
+        return validated_paths
+
+
+    def find_next_turn(self, paths):
+        """Find the earliest time when any robot needs to turn.
+        Returns (time, {robot_id: turn_info}) where time is when the robot reaches the position where it will turn.
+        """
+        next_turns = {}
+        earliest_turn_time = float('inf')
+        
+        for robot_id, path in paths.items():
+            for i in range(len(path) - 1):
+                curr_step = path[i]
+                next_step = path[i + 1]
+                
+                curr_pos = (curr_step[1], curr_step[2])
+                next_pos = (next_step[1], next_step[2])
+                
+                # Skip if same position (already processed turn/wait)
+                if curr_pos == next_pos:
                     continue
                     
-                self.collision_free_paths[stage][robot_id] = path
-            except Exception as e:
-                print(f"Error processing path for robot {robot_id}: {e}")
-                self.collision_free_paths[stage][robot_id] = []
-                continue
-            print("Paths found, generating instructions...")
-            instrs, prev_dir = [], (0, 1)
-            step = 0
-            while step < len(path) - 1:
-                dx = path[step+1][1] - path[step][1]
-                dy = path[step+1][0] - path[step][0]
-                magnitude = max(abs(dx), abs(dy))
-                curr_dir = (dx/magnitude, dy/magnitude) if magnitude > 0 else prev_dir
+                drow = next_pos[0] - curr_pos[0]
+                dcol = next_pos[1] - curr_pos[1]
+                
+                if drow == 0 and dcol != 0:
+                    next_orientation = (0, 1 if dcol > 0 else -1)
+                elif dcol == 0 and drow != 0:
+                    next_orientation = (1 if drow > 0 else -1, 0)
 
-                angle = self.vision.calculate_turn_angle(prev_dir, curr_dir)
-                if angle < 0:
-                    instrs.append(f"RIGHT+{abs(int(angle))}")
-                elif angle > 0:
-                    instrs.append(f"LEFT+{int(angle)}")
+                current_orientation = curr_step[3]
+                if current_orientation != next_orientation:
+                    turn_time = curr_step[0]
+                    
+                    if turn_time <= earliest_turn_time:
+                        dir_to_angle = {
+                            (0, 1): 0,
+                            (1, 0): 90, 
+                            (0, -1): 180, 
+                            (-1, 0): 270
+                        }
+                        curr_angle = dir_to_angle.get(current_orientation, 0)
+                        next_angle = dir_to_angle.get(next_orientation, 0)
+                        
+                        angle = next_angle - curr_angle
+                        if angle > 180:
+                            angle -= 360
+                        elif angle < -180:
+                            angle += 360
+                        
+                        if turn_time < earliest_turn_time:
+                            earliest_turn_time = turn_time
+                            next_turns = {}
+                        
+                        next_turns[robot_id] = {
+                            'time': int(turn_time),
+                            'position': curr_pos,
+                            'angle': int(angle),
+                            'from_orientation': current_orientation,
+                            'to_orientation': next_orientation
+                        }
+                        break  # Only find earliest turn for each robot
+        
+        return int(earliest_turn_time) if earliest_turn_time < float('inf') else float('inf'), next_turns
 
-                n = 1
-                while step + n < len(path) - 1:
-                    next_dx = path[step+n+1][1] - path[step+n][1]
-                    next_dy = path[step+n+1][0] - path[step+n][0]
-                    next_magnitude = max(abs(next_dx), abs(next_dy))
-                    next_dir = (next_dx/next_magnitude, next_dy/next_magnitude) if next_magnitude > 0 else curr_dir
-                    if next_dir == curr_dir:
-                        n += 1
-                    else:
-                        break
-                try:
-                    dist = nx.shortest_path_length(self.vision.update_graph_8d(), source=path[step], target=path[step+n], weight='weight')
-                except nx.NetworkXNoPath:
-                    print(f"Error calculating distance from {path[step]} to {path[step+n]}, skipping")
-                    dx = path[step+n][1] - path[step][1]
-                    dy = path[step+n][0] - path[step][0]
-                    dist = int(np.sqrt(dx**2 + dy**2))
-                instrs.append(f"MOVE+{int(dist)}")
-                prev_dir = curr_dir
-                step += n
 
-            action = robot_schedules[robot_id][stage + 1]['action']
-            if action in ("PICKUP", "DROPOFF"):
-                instrs.append("RIGHT+360")
+    def generate_movement_instructions_from_mapf_paths(self, paths):
+        if not paths:
+            print("No collision-free paths available")
+            return
 
-            final_turn = self.vision.calculate_turn_angle(prev_dir, (0, 1))
-            if final_turn < 0:
-                instrs.append(f"RIGHT+{abs(int(final_turn))}")
-            elif final_turn > 0:
-                instrs.append(f"LEFT+{int(final_turn)}")
+        print("\nConverting paths to instructions")
+        final_instructions = {robot_id: [] for robot_id in paths.keys()}
 
-            stage_instructions[robot_id] = instrs
+        for robot_id, path in paths.items():
+            for i in range(1, len(path)):
+                prev_step = path[i-1]
+                curr_step = path[i]
+                # Check for wait step (same position and orientation)
+                if (curr_step[1] == prev_step[1] and curr_step[2] == prev_step[2] and curr_step[3] == prev_step[3]):
+                    final_instructions[robot_id].append("W")
+                else:
+                    curr_orientation = curr_step[3]
+                    prev_orientation = prev_step[3]
+                    angle = 0
+                    if curr_orientation != prev_orientation:
+                        # (0=Right, 90=Down, 180=Left, 270=Up) (top left of environment is (0, 0))
+                        dir_to_angle = {
+                            (0, 1): 0,    # Right (increasing col)
+                            (1, 0): 90,   # Down (increasing row)
+                            (0, -1): 180, # Left (decreasing col)
+                            (-1, 0): 270  # Up (decreasing row)
+                        }
+                        angle = dir_to_angle.get(curr_orientation, 0) - dir_to_angle.get(prev_orientation, 0)
+                    if angle > 180:
+                        angle -= 360
+                    elif angle < -180:
+                        angle += 360
+                    if angle > 0: # Right
+                        final_instructions[robot_id].append("R")
+                    elif angle < 0: # Left
+                        final_instructions[robot_id].append("L")
+                    elif angle == 0:
+                        final_instructions[robot_id].append("M")
+        self.robot_instructions = final_instructions
+        for robot_id, instructions in self.robot_instructions.items():
+            print(f"\nRobot {robot_id} instructions: {instructions}")
+            print(f"Total instructions: {len(instructions)}")
 
-        return stage_instructions
 
-    def execute(self):
+    def execute_instructions(self):
         execution_thread = threading.Thread(target=self.execute_thread)
         execution_thread.daemon = True
         execution_thread.start()
+        return True
 
-    def execute_thread(self):
-        for stage in self.stage_instructions:
-            threads = []
-            instructions_set = self.stage_instructions[stage]
-            
-            for robot_id, instructions in instructions_set.items():
-                robot_name = f"robot {robot_id}"
-                if robot_name in self.robots and instructions:
-                    thread = threading.Thread(
-                        target=self.send_instructions_to_robot,
-                        args=(robot_name, instructions, robot_id)
-                    )
-                    thread.start()
-                    threads.append(thread)
-            for thread in threads:
-                thread.join()
-        print("All robots completed their instructions or encountered errors")
+    def execute_thread(self):        
+        # Fill all robot queues with their instructions first
+        ble_mtu = 20 
+        prefix = "CMDS+"
+        commands_per_chunk = (ble_mtu - len(prefix))
+        for robot_id in self.robot_instructions.keys():
+            robot = self.robots[robot_id]
+            robot.send_command("CLEAR")
+            instructions = self.robot_instructions[robot_id]
+            command_string = ''.join(instructions)
+            i = 0
+            start = 0
+            while start < len(command_string):
+                i += 1
+                end = min(start + commands_per_chunk, len(command_string))
+                chunk = command_string[start:end]
+                payload = prefix + chunk
+                print(f"Sending chunk {i} to robot {robot_id}: {payload}")
+                ret = robot.send_command(payload)
+                attempts = 0
+                while ret is None:
+                    print(f"Failure {attempts} sending chunk {i} to robot {robot_id}")
+                    ret = robot.send_command(payload)                        
+                    attempts += 1
+                    if attempts == 5:
+                        print(f"Failed to send chunk {i} to robot {robot_id} after 5 attempts")
+                        raise Exception(f"Failed to send chunk {i} to robot {robot_id} after 5 attempts")
+                start = end
+        print("All commands sent to all robots. Starting synchronized execution.")
+        max_steps = max(len(instrs) for instrs in self.robot_instructions.values())
+        # For each step, send EXEC to all robots in parallel
+        for step in range(max_steps):
+            def send_execute(robot):
+                attempts = 0
+                ret = robot.send_command("EXEC")
+                while ret is None:
+                    print(f"Failure {attempts} sending 'EXEC' to robot {robot.id}")
+                    ret = robot.send_command("EXEC")
+                    attempts += 1
+                    if attempts == 5:
+                        print(f"Failed to send 'EXEC' to robot {robot.id} after 5 attempts")
+                        raise Exception(f"Failed to send 'EXEC' to robot {robot.id} after 5 attempts")
 
-    def send_instructions_to_robot(self, robot_name, instructions, robot_id):
-        robot = self.robots[robot_name]
-        if not robot.connected and not robot.connect():
-            print(f"Failed to connect to robot {robot_id}, cannot send instructions")
-            return
-        print(f"Sending {len(instructions)} instructions to robot {robot_id}")
-        for i, instruction in enumerate(instructions):
-            try:
-                print(f"Sending {instruction} to robot {robot_id}")
-                result = robot.send_command(instruction)
-                print(f"Result: {result}")
-            except Exception as e:
-                print(f"Error at instruction {i+1}: {e}")
-                break
-        print(f"Finished sending instructions for robot {robot_id}")
+            execute_threads = []
+            for robot_id in self.robot_instructions.keys():
+                t = threading.Thread(target=send_execute, args=(self.robots[robot_id],))
+                t.start()
+                execute_threads.append(t)
+            for t in execute_threads:
+                t.join()
+            print(f"Step {step+1}/{max_steps} executed by all robots.")
+        for robot_id in self.robot_instructions.keys():
+            self.robots[robot_id].send_command("CLEAR")
+        
 
 
-def assigner(starts, goals):
-    assert(len(starts) == len(goals))
-    agents = []
-    for i, start in enumerate(starts):
-        agents.append(Agent(start, goals[i]))
-    return agents
-
-
-def main():
+if __name__ == "__main__":
     Coordinator()
-
-if __name__ == '__main__':
-    main()

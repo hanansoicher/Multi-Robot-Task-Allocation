@@ -7,3 +7,6 @@
 [submodule "lib/pico-sdk"]
 	path = lib/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git
+[submodule "lib/MAPF_PC"]
+	path = lib/MAPF_PC
+	url = https://github.com/HanZhang39/MAPF-PC

@@ -1,14 +1,23 @@
 {
     "devices": [
         {
-            "name": "robot 0",
+            "marker_id": 0,
+            "device_name": "149_Proj_G8",
             "address": "B0:D2:78:32:EA:6C",
             "write_uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
         },
         {
-            "name": "robot 1",
+            "marker_id": 1,
+            "device_name": "Unknown",
             "address": "60:B6:E1:E1:C6:A6",
             "write_uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
+        },
+        {
+            "marker_id": 2,
+            "device_name": "149_Proj_G8",
+            "address": "38:AB:41:F8:B1:63",
+            "write_uuid": "0000ffe1-0000-1000-8000-00805f9b34fb"
         }
+
     ]
 }
