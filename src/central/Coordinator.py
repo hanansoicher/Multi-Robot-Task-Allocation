@@ -24,6 +24,7 @@ class Coordinator:
         self.collision_free_paths = None # {robot_id: (time, row, col, orientation) path}
         self.schedules = None # {robot_id: (time, row, col, orientation) path}
         self.robot_instructions = None # {robot_id: [instruction]}
+        self.task_progress = None # {robot_id: (task_id, completed_pickup, completed_dropoff) for each task in self.schedules}
 
         self.start_server()
         self.connect_robots()
@@ -187,7 +188,7 @@ class Coordinator:
         except Exception as e:
             print(f"Error generating collision-free paths: {e}")
             self.collision_free_paths = None
-        self.schedules = robot_schedules
+        self.schedules = self.update_robot_schedules(robot_schedules)
 
     def add_turns_and_waits(self, paths):
         """Add turn steps and wait steps to ensure all robots move synchronously."""
@@ -344,6 +345,15 @@ class Coordinator:
         return int(earliest_turn_time) if earliest_turn_time < float('inf') else float('inf'), next_turns
 
 
+    def update_robot_schedules(self, robot_schedules): #Update time steps of robot schedules to match collision-free paths
+        if self.collision_free_paths is None:
+            return robot_schedules
+        paths = self.collision_free_paths.copy()
+        for robot_id, schedule in robot_schedules.items():
+            for task in schedule:
+                task['time'] = next(step for step in paths[robot_id] if step[1] == task['start'][0] and step[2] == task['start'][1] and step[0] >= task['time'])[0]
+        return robot_schedules
+
     def generate_movement_instructions_from_mapf_paths(self, paths):
         if not paths:
             print("No collision-free paths available")
@@ -425,6 +435,8 @@ class Coordinator:
         print("All commands sent to all robots. Starting synchronized execution.")
         max_steps = max(len(instrs) for instrs in self.robot_instructions.values())
         # For each step, send EXEC to all robots in parallel
+        # schedules are sorted by time step, so robots will reach pickup and dropoff coords for each assigned task in order and at the time step they are scheduled for
+        self.task_progress = {robot_id: {task_id: (False, False) for task_id in self.schedules[robot_id]} for robot_id in self.robot_instructions.keys()} 
         for step in range(max_steps):
             def send_execute(robot):
                 attempts = 0
@@ -445,9 +457,17 @@ class Coordinator:
             for t in execute_threads:
                 t.join()
             print(f"Step {step+1}/{max_steps} executed by all robots.")
+            for robot_id in self.robot_instructions.keys(): # Update completed tasks
+                curr_task = next((task for task in self.schedules[robot_id] if task['time'] == step), None)
+                if curr_task is not None:
+                    if curr_task['action'] == "PICKUP":
+                        self.task_progress[robot_id][curr_task['task_id']] = (True, False)
+                    elif curr_task['action'] == "DROPOFF":
+                        self.task_progress[robot_id][curr_task['task_id']] = (True, True)
+
         for robot_id in self.robot_instructions.keys():
             self.robots[robot_id].send_command("CLEAR")
-        
+        self.task_progress = None
 
 
 if __name__ == "__main__":

@@ -284,7 +284,6 @@ class UI(QMainWindow):
 
 
     def run_solver_button_handler(self):
-        self.solver_btn.setEnabled(False)
         threading.Thread(target=self.solver_thread, daemon=True).start()
 
 
@@ -298,12 +297,9 @@ class UI(QMainWindow):
                 print("[UI] Solver failed")
         except Exception as e:
             print(f"[UI] Solver error: {e}")
-        finally:
-            self.solver_btn.setEnabled(True)
 
 
     def send_instructions_button_handler(self):
-        self.send_instructions_btn.setEnabled(False)
         threading.Thread(target=self.coordinator_execute_thread, daemon=True).start()
 
 
@@ -313,8 +309,6 @@ class UI(QMainWindow):
             print("[UI] Instructions sent")
         except Exception as e:
             print(f"[UI] Failed to send instructions: {e}")
-        finally:
-            self.send_instructions_btn.setEnabled(True)
 
 
     def update_task_display(self):
