@@ -1,26 +1,46 @@
 import sys
 import threading
 import numpy as np
+import networkx as nx
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QSpinBox, QScrollArea, QLineEdit, QFrame
+    QPushButton, QLabel, QSpinBox, QScrollArea, QLineEdit, QFrame, QTableWidget, QTableWidgetItem
 )
 import cv2
 
 
 class UI(QMainWindow):
-    def __init__(self, coordinator, vision):
+    def __init__(self, coordinator, camera_input):
         self._app = QApplication.instance() or QApplication(sys.argv)
         super().__init__()
 
         self.coordinator = coordinator
-        self.vision = vision
+
+        self.cap = cv2.VideoCapture(camera_input)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Failed to open camera index {camera_input}")
+
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_ARUCO_ORIGINAL)
+        self.aruco_params = cv2.aruco.DetectorParameters()
+        self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
         
+        self.homography = None
+        self.inverse_homography = None
+        self.robot_coords = {} # {id: (row, col)}
+
+        self.obstacle_grid = None # ROWS x COLS binary grid, 1 = square contains >=1 tape pixel
+        self.graph = None # nodes are (row, col) grid coordinates, edges to adjacent cells with weight=1
+
+
         self.task_coords = {}  # {id: {"start": (row, col), "end": (row, col), "deadline": int}}
         self.selected_task = None
         self.edit_mode = None
+
+        self._pending_schedules = None
+        self.schedules = None
+    
         
         self.setWindowTitle("Robot Environment")
         self.setGeometry(100, 100, 1200, 800)
@@ -52,13 +72,21 @@ class UI(QMainWindow):
         self.solver_btn = QPushButton('Run Solver')
         self.solver_btn.clicked.connect(self.run_solver_button_handler)
         task_layout.addWidget(self.solver_btn)
-        
-        self.send_instructions_btn = QPushButton('Send Instructions')
-        self.send_instructions_btn.setEnabled(False)
-        self.send_instructions_btn.clicked.connect(self.send_instructions_button_handler)
-        task_layout.addWidget(self.send_instructions_btn)
-        
+
         main_layout.addWidget(task_panel)
+
+        self.schedule_panel  = QWidget()
+        self.schedule_layout = QVBoxLayout(self.schedule_panel)
+        self.schedule_panel.setFixedWidth(320)
+
+        self.time_label  = QLabel("Current time step: 0")
+        self.schedule_layout.addWidget(self.time_label)   # first thing in the column
+
+        self.plan_widget = QWidget()                   # everything after this label
+        self.plan_layout = QVBoxLayout(self.plan_widget)
+        self.schedule_layout.addWidget(self.plan_widget)
+
+        main_layout.addWidget(self.schedule_panel)
         
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
@@ -68,41 +96,171 @@ class UI(QMainWindow):
 
 
     def pixel_to_grid(self, x_px, y_px):
-        if self.vision.homography is None:
+        if self.homography is None:
             return None
-        pt = cv2.perspectiveTransform(np.array([[[x_px, y_px]]], dtype=np.float32), self.vision.homography)[0][0]
-        row = min(max(int(pt[1] // self.vision.GRID_SIZE_CM), 0), self.vision.ROWS - 1)
-        col = min(max(int(pt[0] // self.vision.GRID_SIZE_CM), 0), self.vision.COLS - 1)
+        pt = cv2.perspectiveTransform(np.array([[[x_px, y_px]]], dtype=np.float32), self.homography)[0][0]
+        row = min(max(int(pt[1] // self.coordinator.GRID_SIZE_CM), 0), self.coordinator.ROWS - 1)
+        col = min(max(int(pt[0] // self.coordinator.GRID_SIZE_CM), 0), self.coordinator.COLS - 1)
         return (row, col)
 
 
     def grid_to_pixel(self, row, col):
-        if self.vision.inverse_homography is None:
+        if self.inverse_homography is None:
             return None
-        pt = cv2.perspectiveTransform(np.array([[[col + 0.5, row + 0.5]]], dtype=np.float32) * self.vision.GRID_SIZE_CM, self.vision.inverse_homography)[0][0] # center of cell
+        pt = cv2.perspectiveTransform(np.array([[[col + 0.5, row + 0.5]]], dtype=np.float32) * self.coordinator.GRID_SIZE_CM, self.inverse_homography)[0][0] # center of cell
         return (int(pt[0]), int(pt[1])) # (x, y)
     
 
     def update_frame(self):
-        ok, frame = self.vision.get_frame()
+        ok, frame = self.cap.read()
         if not ok:
             return
+        self.time_label.setText(f"Current time step: {self.coordinator.last_completed_step}")
+
+        if self._pending_schedules is not None:
+            self.set_schedules(self._pending_schedules)
+            self._pending_schedules = None
+
+
+        if self.schedules:
+            for robot_id, plan in self.schedules.items():
+                table = self.schedule_panel.findChild(QTableWidget, f"schedule_table_{robot_id}")
+                if table is None:
+                    continue
+
+                for r in range(table.rowCount()):
+                    for c in range(table.columnCount()):
+                        table.item(r, c).setBackground(Qt.white)
+
+                for r, row_info in enumerate(plan):
+                    if row_info["time"] >= self.coordinator.last_completed_step:
+                        for c in range(table.columnCount()):
+                            table.item(r, c).setBackground(Qt.yellow)
+                        break
+
         
         robot_colors = [(0, 255, 0), (255, 165, 0), (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 0, 0)]
 
-        self.vision.process_frame(frame)
-        if self.vision.homography is not None:
+        if self.homography is None:
+            self.compute_homography(frame.copy())
+        elif self.obstacle_grid is None:
+            # TODO: Update grid and graph periodically for dynamic obstacles
+            self.update_obstacle_grid(frame.copy())
+            self.update_graph()
+        if self.homography is not None:
             frame = self.draw_robots(frame, robot_colors)
             frame = self.draw_grid_overlay(frame)
             if self.coordinator.collision_free_paths is not None:
                 frame = self.draw_collision_free_paths(frame, self.coordinator.collision_free_paths, robot_colors)
+                frame = self.draw_new_tasks(frame)
             else:
                 #TODO: Draw waypoints for dynamically added tasks after solver runs
                 frame = self.draw_unassigned_waypoints(frame)
+        
 
         h, w, ch = frame.shape
         img = QImage(frame.data, w, h, ch * w, QImage.Format_BGR888)
         self.img_label.setPixmap(QPixmap.fromImage(img))
+
+
+    def compute_homography(self, frame):
+        corners, ids, _ = self.aruco_detector.detectMarkers(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+
+        if ids is None:
+            print(" No markers detected.")
+            return
+
+        # Map marker ID to its corners
+        marker_corners = {mid: c[0] for c, mid in zip(corners, ids.flatten())}
+        required = {96, 97, 98, 99}
+        if not required.issubset(marker_corners):
+            detected = set(marker_corners.keys())
+            missing = required - detected
+            print(f" Missing markers: {missing}. Detected: {sorted(detected)}")
+            return
+
+        # Uses the inner corner of each marker
+        # OpenCV ArUco corner order: 0=top-left, 1=top-right, 2=bottom-right, 3=bottom-left
+
+        src = np.float32([
+            marker_corners[96][2],  # Top Left marker, bottom-right corner 
+            marker_corners[97][3],  # Top Right marker, bottom-left corner
+            marker_corners[98][1],  # Bottom Left marker, top-right corner
+            marker_corners[99][0],  # Bottom Right marker, top-left corner
+        ])
+        dst = np.float32([
+            [0, 0],
+            [self.coordinator.ENV_WIDTH_CM, 0],
+            [0, self.coordinator.ENV_HEIGHT_CM],
+            [self.coordinator.ENV_WIDTH_CM, self.coordinator.ENV_HEIGHT_CM],
+        ])
+
+        # print(f"Homography src points: {src}")
+        # print(f"Homography dst points: {dst}")
+        self.homography = cv2.getPerspectiveTransform(src, dst)
+        self.inverse_homography = np.linalg.inv(self.homography)
+        print("Corners detected, homography established.")
+        
+
+    def find_robots(self, frame):
+        marker_corners, ids, _ = self.aruco_detector.detectMarkers(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        if ids is not None:
+            rows, cols = int(self.coordinator.ENV_HEIGHT_CM / self.coordinator.GRID_SIZE_CM), int(self.coordinator.ENV_WIDTH_CM / self.coordinator.GRID_SIZE_CM)
+            for i in range(len(ids)):
+                marker_id = ids[i][0]
+                center = np.mean(marker_corners[i][0], axis=0)
+                if marker_id < 96:
+                    # Store as center of the cell
+                    grid_pos = cv2.perspectiveTransform(np.array([[center]]), self.homography)[0][0]
+                    col = int(min(max(grid_pos[0] / self.coordinator.GRID_SIZE_CM, 0), cols - 1))
+                    row = int(min(max(grid_pos[1] / self.coordinator.GRID_SIZE_CM, 0), rows - 1))
+                    
+                    if marker_id == 3: # Temporary, accidentally skipped marker 2
+                        self.robot_coords[2] = (row, col)
+                    else:
+                        self.robot_coords[marker_id] = (row, col)  # (row, col)
+        return self.robot_coords
+
+
+    def update_obstacle_grid(self, frame):
+        """ROWS x COLS binary grid, 1 if square contains >=1 tape pixel."""
+
+        lower_obstacle_range = np.array([72, 30, 110], np.uint8)   # teal tape, OpenCV HSV
+        upper_obstacle_range = np.array([92, 255, 255], np.uint8)
+
+        hsv  = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, lower_obstacle_range, upper_obstacle_range)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+        warped = cv2.warpPerspective(mask, self.homography, (self.coordinator.ENV_WIDTH_CM, self.coordinator.ENV_HEIGHT_CM), flags=cv2.INTER_NEAREST)
+        grid = warped.reshape(self.coordinator.ROWS, self.coordinator.GRID_SIZE_CM, self.coordinator.COLS, self.coordinator.GRID_SIZE_CM).max(1).max(2)
+
+        self.obstacle_grid = (grid > 0).astype(np.uint8)
+        print("number of unreachable cells:", np.sum(self.obstacle_grid))
+        return self.obstacle_grid
+
+
+    def update_graph(self):
+        g = nx.Graph()
+        for r in range(self.coordinator.ROWS):
+            for c in range(self.coordinator.COLS):
+                if self.obstacle_grid[r, c] > 0:
+                    continue
+                g.add_node((r, c))
+                for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+                    neighbor_r, neighbor_c = r+dr, c+dc
+                    if 0 <= neighbor_r < self.coordinator.ROWS and 0 <= neighbor_c < self.coordinator.COLS and self.obstacle_grid[neighbor_r, neighbor_c] == 0:
+                        g.add_edge((r,c), (neighbor_r,neighbor_c), weight=1)
+        self.graph = g
+    
+    def get_obstacle_coordinates(self):
+        obstacles = []
+        if self.obstacle_grid is not None:
+            for row in range(self.obstacle_grid.shape[0]):
+                for col in range(self.obstacle_grid.shape[1]):
+                    if self.obstacle_grid[row, col]:
+                        obstacles.append((row, col))
+        return obstacles
 
 
     def draw_grid_overlay(self, frame):
@@ -110,25 +268,25 @@ class UI(QMainWindow):
         red = (0, 0, 255) # obstacles
         overlay = frame.copy()
 
-        if self.vision.inverse_homography is None:
+        if self.inverse_homography is None:
             return overlay
 
-        for row in range(self.vision.ROWS + 1):
+        for row in range(self.coordinator.ROWS + 1):
             p1 = self.grid_to_pixel(row - 0.5, -0.5)
-            p2 = self.grid_to_pixel(row - 0.5, self.vision.COLS - 0.5)
+            p2 = self.grid_to_pixel(row - 0.5, self.coordinator.COLS - 0.5)
             if p1 and p2:
                 cv2.line(overlay, p1, p2, pink, 1)
-        for col in range(self.vision.COLS + 1):
+        for col in range(self.coordinator.COLS + 1):
             p1 = self.grid_to_pixel(-0.5, col - 0.5)
-            p2 = self.grid_to_pixel(self.vision.ROWS - 0.5, col - 0.5)
+            p2 = self.grid_to_pixel(self.coordinator.ROWS - 0.5, col - 0.5)
             if p1 and p2:
                 cv2.line(overlay, p1, p2, pink, 1)
 
-        if self.vision.obstacle_grid is not None:
+        if self.obstacle_grid is not None:
             obstacle_overlay = overlay.copy()
-            for i in range(self.vision.obstacle_grid.shape[0]):
-                for j in range(self.vision.obstacle_grid.shape[1]):
-                    if self.vision.obstacle_grid[i, j] == 1:
+            for i in range(self.obstacle_grid.shape[0]):
+                for j in range(self.obstacle_grid.shape[1]):
+                    if self.obstacle_grid[i, j] == 1:
                         corners = [
                             self.grid_to_pixel(i - 0.5, j - 0.5),
                             self.grid_to_pixel(i - 0.5, j + 0.5),
@@ -144,7 +302,7 @@ class UI(QMainWindow):
 
 
     def draw_robots(self, frame, robot_colors):
-        robot_coords = self.vision.find_robots(frame)
+        robot_coords = self.find_robots(frame)
         overlay = frame.copy()
         for robot_id, (row, col) in robot_coords.items():
             pt = self.grid_to_pixel(row, col)
@@ -172,6 +330,21 @@ class UI(QMainWindow):
                     cv2.putText(overlay, f"D{task_id}", (px[0]-10, px[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2) # red
         return overlay
     
+    def draw_new_tasks(self, frame):
+        overlay = frame.copy()
+        for task_id, task in self.task_coords.items():
+            if task_id >= self.coordinator.num_tasks:
+                if task['start']:
+                    px = self.grid_to_pixel(task['start'][0], task['start'][1])
+                    if px:
+                        cv2.circle(overlay, px, 8, (0, 255, 0), -1)
+                        cv2.putText(overlay, f"P{task_id}", (px[0]-10, px[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2) # green
+                if task['end']:
+                    px = self.grid_to_pixel(task['end'][0], task['end'][1])
+                    if px:
+                        cv2.circle(overlay, px, 8, (0, 0, 255), -1)
+                        cv2.putText(overlay, f"D{task_id}", (px[0]-10, px[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2) # red
+        return overlay
 
     def draw_collision_free_paths(self, frame, paths, robot_colors):
         overlay = frame.copy()
@@ -188,7 +361,7 @@ class UI(QMainWindow):
                 continue
             color = robot_colors[robot_id % len(robot_colors)]
             pts = []
-            for step in path:
+            for step in path[self.coordinator.last_completed_step+1:]:
                 row, col = int(step[1]), int(step[2])
                 pt = self.grid_to_pixel(row, col)
                 if pt:
@@ -275,8 +448,8 @@ class UI(QMainWindow):
             x, y = map(int, text.split(','))
             if task_id in self.task_coords:
                 # Clamp to grid bounds
-                row = max(0, min(self.vision.ROWS - 1, x))
-                col = max(0, min(self.vision.COLS - 1, y))
+                row = max(0, min(self.coordinator.ROWS - 1, x))
+                col = max(0, min(self.coordinator.COLS - 1, y))
                 self.task_coords[task_id][mode] = (row, col)
                 self.update_task_display()
         except ValueError:
@@ -284,31 +457,53 @@ class UI(QMainWindow):
 
 
     def run_solver_button_handler(self):
-        threading.Thread(target=self.solver_thread, daemon=True).start()
+        if self.coordinator.execution_running:
+            # If execution is running, stop it
+            threading.Thread(target=self.stop_execution_thread, daemon=True).start()
+        else:
+            # If not running, start new execution
+            threading.Thread(target=self.solve_and_execute_thread, daemon=True).start()
 
 
-    def solver_thread(self):
+    def stop_execution_thread(self):
         try:
-            self.coordinator.run_solver()
-            if self.coordinator.collision_free_paths is not None:
-                self.send_instructions_btn.setEnabled(True)
-                print("[UI] Solver completed successfully")
+            self.solver_btn.setText('Stopping...')
+            self.solver_btn.setEnabled(False)
+            self.coordinator.stop_execution_event.set()
+            if self.coordinator.execution_thread and self.coordinator.execution_thread.is_alive():
+                self.coordinator.execution_thread.join(timeout=5.0)
+
+            self.coordinator.execution_running = False
+            self.coordinator.stop_execution_event.clear()
+            print("[UI] Execution stopped")
+            threading.Thread(target=self.solve_and_execute_thread, daemon=True).start()
+            self.solver_btn.setEnabled(True)
+        except Exception as e:
+            print(f"[UI] Failed to stop execution: {e}")
+            self.solver_btn.setText('Solve and Execute')
+            self.solver_btn.setEnabled(True)
+
+
+    def solve_and_execute_thread(self):
+        try:
+            # Update button text to show execution is starting
+            self.solver_btn.setText('Solving...')
+            self.solver_btn.setEnabled(False)
+            
+            success = self.coordinator.run_solver()
+            if success:
+                print("[UI] Solve and execute completed successfully")
+                # Update button text to show execution is running
+                self.solver_btn.setText('Stop and Re-solve')
+                self.solver_btn.setEnabled(True)
             else:
-                print("[UI] Solver failed")
+                print("[UI] Solve and execute failed")
+                self.solver_btn.setText('Solve and Execute')
+                self.solver_btn.setEnabled(True)
         except Exception as e:
-            print(f"[UI] Solver error: {e}")
-
-
-    def send_instructions_button_handler(self):
-        threading.Thread(target=self.coordinator_execute_thread, daemon=True).start()
-
-
-    def coordinator_execute_thread(self):
-        try:
-            self.coordinator.execute_instructions()
-            print("[UI] Instructions sent")
-        except Exception as e:
-            print(f"[UI] Failed to send instructions: {e}")
+            print(f"[UI] Solve and execute error: {e}")
+            self.solver_btn.setText('Solve and Execute')
+            self.solver_btn.setEnabled(True)
 
 
     def update_task_display(self):
@@ -342,7 +537,7 @@ class UI(QMainWindow):
             start_layout = QHBoxLayout(start_widget)
             start_layout.setContentsMargins(0, 0, 0, 0)
 
-            start_label = QLabel('Start Point:')
+            start_label = QLabel('Pickup:')
             start_btn = QPushButton(str(task['start']) if task['start'] else 'Set Pickup')
             start_btn.setFixedSize(120, 30)
             start_btn.clicked.connect(lambda checked, x=task_id: self.edit_waypoint(x, 'start'))
@@ -366,7 +561,7 @@ class UI(QMainWindow):
             end_layout = QHBoxLayout(end_widget)
             end_layout.setContentsMargins(0, 0, 0, 0)
 
-            end_label = QLabel('End Point:')
+            end_label = QLabel('Dropoff:')
             end_btn = QPushButton(str(task['end']) if task['end'] else 'Set Dropoff')
             end_btn.setFixedSize(120, 30)
             end_btn.clicked.connect(lambda checked, x=task_id: self.edit_waypoint(x, 'end'))
@@ -408,8 +603,47 @@ class UI(QMainWindow):
                 task_layout.addWidget(line)
             
             self.task_layout.addWidget(task_widget)
+
+            
         
         self.task_layout.addStretch()
+
+
+    def set_schedules(self, schedules: dict):
+        self.schedules = schedules
+
+        # clear everything that sits *below* the “Current time step” label
+        while self.plan_layout.count():
+            w = self.plan_layout.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+
+        if not self.schedules:
+            return
+
+        for robot_id, plan in self.schedules.items():
+            header = QLabel(f"<b>Robot {robot_id} Plan</b>")
+            self.plan_layout.addWidget(header)
+
+            table = QTableWidget(len(plan), 4)
+            table.setHorizontalHeaderLabels(["Time", "Location", "Action", "Task"])
+            table.verticalHeader().setVisible(False)
+            table.setEditTriggers(QTableWidget.NoEditTriggers)
+            table.setSelectionMode(QTableWidget.NoSelection)
+
+            for row, step in enumerate(plan):
+                table.setItem(row, 0, QTableWidgetItem(str(step["time"])))
+                table.setItem(row, 1, QTableWidgetItem(str(step["location"])))
+                table.setItem(row, 2, QTableWidgetItem(step["action"]))
+                task_txt = "N/A" if step["task_id"] is None else f"Task {step['task_id']}"
+                table.setItem(row, 3, QTableWidgetItem(task_txt))
+
+            table.resizeColumnsToContents()
+            table.setFixedHeight(min(200, table.verticalHeader().length() + 25))
+            table.setObjectName(f"schedule_table_{robot_id}")
+            self.plan_layout.addWidget(table)
+
+        self.plan_layout.addStretch()
 
 
     def eventFilter(self, source, event):
@@ -419,7 +653,7 @@ class UI(QMainWindow):
             event.button() == Qt.LeftButton and 
             self.edit_mode):
             
-            grid_pos = self.vision.pixel_to_grid(event.pos().x(), event.pos().y())
+            grid_pos = self.pixel_to_grid(event.pos().x(), event.pos().y())
             if grid_pos is not None and self.selected_task is not None:
                 row, col = grid_pos
                 if self.edit_mode == 'start':
@@ -434,5 +668,6 @@ class UI(QMainWindow):
     
 
     def closeEvent(self, event):
-        self.vision.close()
+        if self.cap:
+            self.cap.release()
         event.accept()

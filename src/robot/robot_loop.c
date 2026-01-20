@@ -174,7 +174,7 @@ bool execute_turn(char direction, int32_t angle) {
     int32_t start_left = robot_state.last_left_encoder;
     int32_t start_right = robot_state.last_right_encoder;
 
-    int32_t target_ticks = abs(90 * ENCODER_TICKS_PER_DEGREE);
+    int32_t target_ticks = abs(angle * ENCODER_TICKS_PER_DEGREE);
 
     int32_t left_speed = -TURN_MOTOR_SPEED * dir;
     int32_t right_speed = TURN_MOTOR_SPEED * dir;
@@ -270,6 +270,14 @@ bool handle_command(const char* command) {
             command_queue_size = 0;
             current_command_index = 0;
         }
+        uart_puts(UART_ID, "COMPLETED\n");
+        return true;
+    }
+
+    else if (strncmp(command, "GET_QUEUE", 8) == 0) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "QUEUE,%s\n", command_queue);
+        uart_puts(UART_ID, buf);
         uart_puts(UART_ID, "COMPLETED\n");
         return true;
     }

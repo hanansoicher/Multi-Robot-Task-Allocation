@@ -12,7 +12,7 @@ import re
 class MAPF_Wrapper:    
     def __init__(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.mapf_pc_path = os.path.join(os.path.dirname(current_dir), "MAPF-PC")
+        self.mapf_pc_path = os.path.join(os.path.dirname(os.path.dirname(current_dir)), "lib", "MAPF_PC")
         self.cbs_executable = os.path.join(self.mapf_pc_path, "bin", "cbs.exe")
         
         if not os.path.exists(self.cbs_executable):
@@ -209,7 +209,14 @@ class MAPF_Wrapper:
             if result['success']:
                 print("CBS solver completed successfully!")
                 print(f"Generated paths for {len(result['paths'])} agents")
-                collision_free_paths = {int(robot_id): path for robot_id, path in result['paths'].items()}
+                
+                # Map agent IDs back to original robot IDs
+                sorted_robot_ids = sorted(schedules.keys(), key=lambda x: int(x))
+                collision_free_paths = {}
+                for agent_id, path in result['paths'].items():
+                    robot_id = sorted_robot_ids[int(agent_id)]
+                    collision_free_paths[robot_id] = path
+                
                 return collision_free_paths
             else:
                 print(f"CBS solver failed: {result['error']}")
